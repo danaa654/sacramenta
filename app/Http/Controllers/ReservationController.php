@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreReservationRequest;
 use App\Models\Priest;
 use App\Models\Reservation;
+use App\Services\SchedulingConflictService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,11 @@ use Inertia\Response;
 
 class ReservationController extends Controller
 {
+    public function __construct(
+        protected SchedulingConflictService $conflicts
+    ) {
+    }
+
     /**
      * Kapilya / Barangay chapel options for the Chapel Mass reservation type.
      * Move this to a config file or table later if parishes need to manage it themselves.
@@ -41,11 +47,13 @@ class ReservationController extends Controller
         ]);
     }
 
-    public function create(): Response
+    public function create(Request $request): Response
     {
         return Inertia::render('Reservations/Create', [
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
             'chapels' => $this->chapels,
+            // Populated when arriving from the Calendar page's "click an empty day" flow.
+            'date' => $request->query('date'),
         ]);
     }
 
@@ -128,7 +136,10 @@ class ReservationController extends Controller
     /**
      * Explicit status transition endpoint. Draft -> Confirmed is blocked
      * server-side (not just in the UI) unless every checklist item for the
-     * reservation's type has been checked off.
+     * reservation's type has been checked off, AND its date/time doesn't
+     * collide with something else that's already confirmed — a draft may
+     * have sat around while another reservation for the same priest or
+     * chapel slot got confirmed in the meantime.
      */
     public function updateStatus(Request $request, Reservation $reservation): RedirectResponse
     {
@@ -136,7 +147,7 @@ class ReservationController extends Controller
             'status' => ['required', Rule::in(['draft', 'confirmed', 'completed', 'archived'])],
         ]);
 
-        if ($validated['status'] === 'confirmed' && $reservation->status === 'draft') {
+        if ($validated['status'] === 'confirmed' && $reservation->status !== 'confirmed') {
             $reservation->loadMissing('requirements');
             $missing = $reservation->incompleteRequirementLabels();
 
@@ -144,6 +155,47 @@ class ReservationController extends Controller
                 return back()->withErrors([
                     'status' => 'Cannot confirm this reservation — still missing: '.implode(', ', $missing).'.',
                 ]);
+            }
+
+            if ($reservation->event_time) {
+                if ($reservation->priest_id) {
+                    $conflict = $this->conflicts->findPriestConflict(
+                        $reservation->priest_id,
+                        $reservation->event_date->format('Y-m-d'),
+                        substr((string) $reservation->event_time, 0, 5),
+                        $reservation->type,
+                        $reservation->id
+                    );
+
+                    if ($conflict) {
+                        $priestName = $reservation->priest?->name ?? 'This priest';
+                        $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
+
+                        return back()->withErrors([
+                            'status' => "Cannot confirm — {$priestName} was already confirmed for {$conflictTime} on the same date by another reservation.",
+                        ]);
+                    }
+                }
+
+                $chapel = $reservation->details['chapel'] ?? null;
+
+                if ($reservation->type === 'chapel_mass' && $chapel) {
+                    $conflict = $this->conflicts->findChapelConflict(
+                        $chapel,
+                        $reservation->event_date->format('Y-m-d'),
+                        substr((string) $reservation->event_time, 0, 5),
+                        $reservation->type,
+                        $reservation->id
+                    );
+
+                    if ($conflict) {
+                        $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
+
+                        return back()->withErrors([
+                            'status' => "Cannot confirm — {$chapel} was already confirmed for {$conflictTime} on the same date by another reservation.",
+                        ]);
+                    }
+                }
             }
         }
 
@@ -153,32 +205,57 @@ class ReservationController extends Controller
     }
 
     /**
-     * GET /reservations/availability?priest_id=X&date=Y[&exclude=Z]
+     * GET /reservations/availability?priest_id=X&date=Y[&exclude=Z][&chapel=C&type=chapel_mass]
      *
      * Returns the list of "HH:MM" slots already taken by CONFIRMED
      * reservations for that priest on that date, so the create/edit form
      * can grey them out before the user submits. `exclude` lets the edit
-     * form ignore the reservation currently being edited.
+     * form ignore the reservation currently being edited. When `chapel`
+     * is also supplied (Chapel Mass bookings), a second list of slots
+     * already taken at that chapel is returned too.
      */
     public function availability(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'priest_id' => ['required', 'integer', 'exists:priests,id'],
+            'priest_id' => ['nullable', 'integer', 'exists:priests,id'],
             'date' => ['required', 'date'],
             'exclude' => ['nullable', 'integer'],
+            'chapel' => ['nullable', 'string'],
         ]);
 
-        $taken = Reservation::query()
-            ->where('priest_id', $validated['priest_id'])
-            ->where('status', 'confirmed')
-            ->whereDate('event_date', $validated['date'])
-            ->whereNotNull('event_time')
-            ->when($validated['exclude'] ?? null, fn ($q, $excludeId) => $q->where('id', '!=', $excludeId))
-            ->get()
-            ->map(fn (Reservation $r) => substr((string) $r->event_time, 0, 5))
-            ->values();
+        $taken = collect();
 
-        return response()->json(['taken' => $taken]);
+        if (! empty($validated['priest_id'])) {
+            $taken = Reservation::query()
+                ->where('priest_id', $validated['priest_id'])
+                ->where('status', 'confirmed')
+                ->whereDate('event_date', $validated['date'])
+                ->whereNotNull('event_time')
+                ->when($validated['exclude'] ?? null, fn ($q, $excludeId) => $q->where('id', '!=', $excludeId))
+                ->get()
+                ->map(fn (Reservation $r) => substr((string) $r->event_time, 0, 5))
+                ->values();
+        }
+
+        $takenChapel = collect();
+
+        if (! empty($validated['chapel'])) {
+            $takenChapel = Reservation::query()
+                ->where('type', 'chapel_mass')
+                ->where('details->chapel', $validated['chapel'])
+                ->where('status', 'confirmed')
+                ->whereDate('event_date', $validated['date'])
+                ->whereNotNull('event_time')
+                ->when($validated['exclude'] ?? null, fn ($q, $excludeId) => $q->where('id', '!=', $excludeId))
+                ->get()
+                ->map(fn (Reservation $r) => substr((string) $r->event_time, 0, 5))
+                ->values();
+        }
+
+        return response()->json([
+            'taken' => $taken,
+            'takenChapel' => $takenChapel,
+        ]);
     }
 
     /**

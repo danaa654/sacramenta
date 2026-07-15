@@ -200,9 +200,12 @@ function formatDate(date) {
                         >
                             New Reservation
                         </Link>
-                        <button disabled title="Coming soon" class="cursor-not-allowed rounded-full border border-[#3f6470]/15 px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.08em] text-[#3f6470]/35 dark:border-white/10 dark:text-slate-500">
+                        <Link
+                            :href="route('calendar.index')"
+                            class="rounded-full border border-[#3f6470]/20 px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.08em] text-[#3f6470] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#E4EDE1]/60 hover:shadow-md dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
+                        >
                             View Calendar
-                        </button>
+                        </Link>
                         <button disabled title="Coming soon" class="cursor-not-allowed rounded-full border border-[#3f6470]/15 px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.08em] text-[#3f6470]/35 dark:border-white/10 dark:text-slate-500">
                             Financial Report
                         </button>

@@ -180,6 +180,15 @@ const confirmTooltip = computed(() => {
                                 {{ reservation.offering_amount ? `₱${Number(reservation.offering_amount).toLocaleString()}` : '—' }}
                             </dd>
                         </div>
+                        <div v-if="reservation.offering_amount">
+                            <dt class="field-label">Payment</dt>
+                            <dd class="mt-1 text-sm text-[#2f4a4a]">
+                                <Link :href="route('financials.index', { search: reservation.contact_name })" class="text-[#3f6470] hover:underline">
+                                    {{ (reservation.payment_status ?? 'unpaid').charAt(0).toUpperCase() + (reservation.payment_status ?? 'unpaid').slice(1) }}
+                                    <span v-if="reservation.receipt_number"> · O.R. {{ reservation.receipt_number }}</span>
+                                </Link>
+                            </dd>
+                        </div>
                     </dl>
                 </div>
 

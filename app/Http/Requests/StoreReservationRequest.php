@@ -3,7 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\Priest;
-use App\Models\Reservation;
+use App\Services\SchedulingConflictService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -38,9 +38,9 @@ class StoreReservationRequest extends FormRequest
 
     /**
      * Beyond field-level rules, reject the whole submission if it would
-     * double-book a priest. This runs after the normal rules pass, so we
-     * only bother checking once we know priest_id/event_date/event_time
-     * are individually valid.
+     * double-book a priest or a chapel. This runs after the normal rules
+     * pass, so we only bother checking once we know priest_id/chapel/
+     * event_date/event_time are individually valid.
      */
     public function withValidator(Validator $validator): void
     {
@@ -51,52 +51,63 @@ class StoreReservationRequest extends FormRequest
 
     protected function checkSchedulingConflict(Validator $validator): void
     {
-        $priestId = $this->input('priest_id');
         $date = $this->input('event_date');
         $time = $this->input('event_time');
         $type = $this->input('type');
 
-        if (! $priestId || ! $date || ! $time) {
+        if (! $date || ! $time) {
             return;
         }
 
-        $duration = $this->durationFor($type);
-        $start = Carbon::parse("{$date} {$time}");
-        $end = $start->copy()->addMinutes($duration);
-
-        // Editing an existing reservation shouldn't conflict with itself.
+        $service = app(SchedulingConflictService::class);
         $currentReservation = $this->route('reservation');
 
-        $conflict = Reservation::query()
-            ->where('priest_id', $priestId)
-            ->where('status', 'confirmed')
-            ->whereDate('event_date', $date)
-            ->whereNotNull('event_time')
-            ->when($currentReservation, fn ($q) => $q->where('id', '!=', $currentReservation->id))
-            ->get()
-            ->first(function (Reservation $existing) use ($start, $end) {
-                $existingStart = Carbon::parse($existing->event_date->format('Y-m-d').' '.$existing->event_time);
-                $existingEnd = $existingStart->copy()->addMinutes($this->durationFor($existing->type));
+        $priestId = $this->input('priest_id');
 
-                return $start->lt($existingEnd) && $existingStart->lt($end);
-            });
-
-        if ($conflict) {
-            $priestName = Priest::find($priestId)?->name ?? 'The priest';
-            $conflictTime = Carbon::parse($conflict->event_time)->format('g:i A');
-            $conflictDate = $conflict->event_date->format('F j, Y');
-
-            $validator->errors()->add(
-                'event_time',
-                "{$priestName} already has a confirmed reservation at {$conflictTime} on {$conflictDate}."
+        if ($priestId) {
+            $conflict = $service->findPriestConflict(
+                $priestId,
+                $date,
+                $time,
+                $type,
+                $currentReservation?->id
             );
-        }
-    }
 
-    protected function durationFor(?string $type): int
-    {
-        return config("reservation_requirements.durations.{$type}")
-            ?? config('reservation_requirements.durations.default', 30);
+            if ($conflict) {
+                $priestName = Priest::find($priestId)?->name ?? 'The priest';
+                $conflictTime = Carbon::parse($conflict->event_time)->format('g:i A');
+                $conflictDate = $conflict->event_date->format('F j, Y');
+
+                $validator->errors()->add(
+                    'event_time',
+                    "{$priestName} already has a confirmed reservation at {$conflictTime} on {$conflictDate}."
+                );
+
+                return;
+            }
+        }
+
+        $chapel = $this->input('details.chapel');
+
+        if ($type === 'chapel_mass' && $chapel) {
+            $conflict = $service->findChapelConflict(
+                $chapel,
+                $date,
+                $time,
+                $type,
+                $currentReservation?->id
+            );
+
+            if ($conflict) {
+                $conflictTime = Carbon::parse($conflict->event_time)->format('g:i A');
+                $conflictDate = $conflict->event_date->format('F j, Y');
+
+                $validator->errors()->add(
+                    'event_time',
+                    "{$chapel} already has a confirmed Mass at {$conflictTime} on {$conflictDate}."
+                );
+            }
+        }
     }
 
     protected function conditionalRules(?string $type): array

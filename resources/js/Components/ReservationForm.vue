@@ -16,6 +16,13 @@ const props = defineProps({
         type: Object,
         default: null,
     },
+    // Optional YYYY-MM-DD, passed through from Reservations/Create.vue when
+    // arriving via a Calendar day-cell click. Only used as a pre-fill when
+    // there's no existing reservation (i.e. not in edit mode).
+    date: {
+        type: String,
+        default: null,
+    },
 });
 
 const isEdit = computed(() => !!props.reservation);
@@ -88,7 +95,7 @@ const form = useForm({
     contact_name: props.reservation?.contact_name ?? '',
     contact_mobile: props.reservation?.contact_mobile ?? '',
     contact_address: props.reservation?.contact_address ?? '',
-    event_date: props.reservation?.event_date?.slice(0, 10) ?? '',
+    event_date: props.reservation?.event_date?.slice(0, 10) ?? props.date ?? '',
     event_time: props.reservation?.event_time?.slice(0, 5) ?? '',
     priest_id: props.reservation?.priest_id ?? '',
     offering_amount: props.reservation?.offering_amount ?? '',
@@ -127,11 +134,15 @@ const nextFirstFriday = computed(() => {
 // ---- Scheduling availability ----
 
 const takenSlots = ref([]);
+const takenChapelSlots = ref([]);
 const loadingAvailability = ref(false);
 
 async function refreshAvailability() {
-    if (!form.priest_id || !form.event_date) {
+    const chapel = form.type === 'chapel_mass' ? form.details.chapel : null;
+
+    if (!form.event_date || (!form.priest_id && !chapel)) {
         takenSlots.value = [];
+        takenChapelSlots.value = [];
         return;
     }
 
@@ -140,26 +151,47 @@ async function refreshAvailability() {
     try {
         const { data } = await axios.get(route('reservations.availability'), {
             params: {
-                priest_id: form.priest_id,
+                priest_id: form.priest_id || undefined,
                 date: form.event_date,
+                chapel: chapel || undefined,
                 exclude: props.reservation?.id ?? undefined,
             },
         });
         takenSlots.value = data.taken ?? [];
+        takenChapelSlots.value = data.takenChapel ?? [];
     } catch (e) {
         // If the availability check fails, don't block the form — the
         // server-side conflict check on submit is still authoritative.
         takenSlots.value = [];
+        takenChapelSlots.value = [];
     } finally {
         loadingAvailability.value = false;
     }
 }
 
-watch(() => [form.priest_id, form.event_date], refreshAvailability, { immediate: true });
+watch(
+    () => [form.priest_id, form.event_date, form.type === 'chapel_mass' ? form.details.chapel : null],
+    refreshAvailability,
+    { immediate: true }
+);
 
 function isSlotTaken(value) {
-    return takenSlots.value.includes(value);
+    return takenSlots.value.includes(value) || takenChapelSlots.value.includes(value);
 }
+
+const conflictWarning = computed(() => {
+    if (!form.event_time) return null;
+
+    if (takenSlots.value.includes(form.event_time)) {
+        return 'This priest already has a confirmed reservation at this time — please pick another slot.';
+    }
+
+    if (takenChapelSlots.value.includes(form.event_time)) {
+        return 'This chapel already has a confirmed Mass at this time — please pick another slot.';
+    }
+
+    return null;
+});
 
 function submit() {
     if (isEdit.value) {
@@ -241,6 +273,12 @@ function submit() {
                         </option>
                     </select>
                     <p v-if="form.errors.event_time" class="field-error">{{ form.errors.event_time }}</p>
+                    <p v-else-if="conflictWarning" class="mt-1.5 flex items-start gap-1.5 text-xs font-medium text-amber-700">
+                        <svg class="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        {{ conflictWarning }}
+                    </p>
                     <p v-else-if="form.priest_id && form.event_date && takenSlots.length" class="mt-1.5 text-xs text-[#3f6470]/50">
                         Greyed-out times are already booked for this priest on this date.
                     </p>

@@ -12,6 +12,12 @@ defineProps({
         type: Array,
         default: () => [],
     },
+    // Present when arriving from Calendar/Index.vue's "click an empty day" link
+    // (?date=YYYY-MM-DD), so the form can pre-fill event_date.
+    date: {
+        type: String,
+        default: null,
+    },
 });
 </script>
 
@@ -40,7 +46,7 @@ defineProps({
 
         <div class="py-10">
             <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-                <ReservationForm :priests="priests" :chapels="chapels" />
+                <ReservationForm :priests="priests" :chapels="chapels" :date="date" />
             </div>
         </div>
     </AuthenticatedLayout>

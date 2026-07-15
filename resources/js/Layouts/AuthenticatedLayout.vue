@@ -43,10 +43,11 @@ const showingSidebar = ref(false);
             <div class="flex min-h-screen flex-1 flex-col">
                 <!-- Page Heading -->
                 <header
-                    class="border-b border-white/50 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/60"
+                    class="border-b border-white/50 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/60"
+                    style="background-color: #DCF1F5;"
                     v-if="$slots.header"
                 >
-                    <div class="px-4 py-6 sm:px-6 lg:px-8">
+                    <div class="px-4 py-2 sm:px-6 lg:px-8">
                         <slot name="header" />
                     </div>
                 </header>

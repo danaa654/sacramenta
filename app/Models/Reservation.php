@@ -22,11 +22,19 @@ class Reservation extends Model
         'status',
         'details',
         'offering_amount',
+        'payment_status',
+        'amount_paid',
+        'receipt_number',
+        'payment_date',
+        'payment_note',
     ];
 
     protected $casts = [
         'details' => 'array',
         'event_date' => 'date',
+        'payment_date' => 'date',
+        'offering_amount' => 'decimal:2',
+        'amount_paid' => 'decimal:2',
     ];
 
     public function priest(): BelongsTo
@@ -60,5 +68,17 @@ class Reservation extends Model
             ->where('is_completed', false)
             ->pluck('label')
             ->all();
+    }
+
+    /**
+     * Outstanding balance for this reservation's offering/stipend.
+     * Never negative; treats a null offering as fully settled (nothing owed).
+     */
+    public function balanceDue(): float
+    {
+        $offering = (float) ($this->offering_amount ?? 0);
+        $paid = (float) ($this->amount_paid ?? 0);
+
+        return max(0, $offering - $paid);
     }
 }

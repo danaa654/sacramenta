@@ -14,7 +14,8 @@ defineEmits(['close', 'toggle']);
 const navItems = [
     { label: 'Dashboard', icon: 'grid', route: 'dashboard', enabled: true },
     { label: 'Reservations', icon: 'calendar', route: 'reservations.index', enabled: true },
-    { label: 'Financials', icon: 'coin', route: null, enabled: false },
+    { label: 'Calendar', icon: 'calendar-view', route: 'calendar.index', enabled: true },
+    { label: 'Financials', icon: 'coin', route: 'financials.index', enabled: true },
     { label: 'Archives', icon: 'archive', route: null, enabled: false },
 ];
 
@@ -54,12 +55,13 @@ function initials(name) {
         hover, rather than pushing content around.
     -->
     <aside
-        class="group fixed inset-y-0 left-0 z-50 flex w-20 -translate-x-full flex-col overflow-hidden border-r border-white/50 bg-white/80 backdrop-blur-md transition-all duration-200 ease-out hover:w-64 hover:shadow-xl dark:border-white/10 dark:bg-slate-900/85 lg:translate-x-0"
+        class="group fixed inset-y-0 left-0 z-50 flex w-20 -translate-x-full flex-col overflow-hidden border-r border-white/50 backdrop-blur-md transition-all duration-200 ease-out hover:w-64 hover:shadow-xl dark:border-white/10 dark:bg-slate-900/85 lg:translate-x-0"
+        style="background-color: #DCF1F5;"
         :class="{ 'w-64 translate-x-0': show }"
     >
-        <div class="flex items-center px-5 py-6">
+        <div class="flex items-center px-4 py-5">
             <Link :href="route('dashboard')" class="flex shrink-0 items-center">
-                <img src="/logo.png" alt="Sacramenta" class="h-10 w-10 object-contain" />
+                <img src="/logo.png" alt="Sacramenta" class="h-16 w-16 object-contain" />
             </Link>
             <span
                 class="ml-3 whitespace-nowrap font-serif text-lg font-medium text-[#3f6470] opacity-0 transition-opacity duration-150 group-hover:opacity-100 dark:text-white"
@@ -97,6 +99,11 @@ function initials(name) {
                 <svg v-else-if="item.icon === 'coin'" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                     <circle cx="12" cy="12" r="8.5" />
                     <path d="M12 7.5v9M9.3 9.7c0-1.1 1.2-2 2.7-2s2.7.75 2.7 1.7c0 2.3-5.4 1-5.4 3.3 0 .95 1.2 1.7 2.7 1.7s2.7-.9 2.7-2" stroke-linecap="round" />
+                </svg>
+                <svg v-else-if="item.icon === 'calendar-view'" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+                    <path d="M3.5 9.5h17M8 3v4M16 3v4" stroke-linecap="round" />
+                    <rect x="13.2" y="12" width="4.3" height="4.3" rx="0.8" fill="currentColor" stroke="none" />
                 </svg>
                 <svg v-else class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                     <rect x="3.5" y="4.5" width="17" height="4.5" rx="1.2" />
