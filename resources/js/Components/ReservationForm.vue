@@ -94,6 +94,7 @@ const form = useForm({
     type: props.reservation?.type ?? '',
     contact_name: props.reservation?.contact_name ?? '',
     contact_mobile: props.reservation?.contact_mobile ?? '',
+    contact_email: props.reservation?.contact_email ?? '',
     contact_address: props.reservation?.contact_address ?? '',
     event_date: props.reservation?.event_date?.slice(0, 10) ?? props.date ?? '',
     event_time: props.reservation?.event_time?.slice(0, 5) ?? '',
@@ -242,6 +243,13 @@ function submit() {
                     <label class="field-label">Mobile Number</label>
                     <input v-model="form.contact_mobile" type="text" class="field-input" placeholder="09XX XXX XXXX" />
                     <p v-if="form.errors.contact_mobile" class="field-error">{{ form.errors.contact_mobile }}</p>
+                </div>
+
+                <div>
+                    <label class="field-label">Email (optional)</label>
+                    <input v-model="form.contact_email" type="email" class="field-input" placeholder="name@example.com" />
+                    <p v-if="form.errors.contact_email" class="field-error">{{ form.errors.contact_email }}</p>
+                    <p class="mt-1 text-xs text-[#3f6470]/50">Used to send a confirmation email once this reservation is confirmed.</p>
                 </div>
 
                 <div class="sm:col-span-2">

@@ -50,13 +50,16 @@ function initials(name) {
     </button>
 
     <!--
-        Desktop: a slim icon rail is always reserved in the layout (see AuthenticatedLayout's
-        spacer div). This aside is fixed on top of that rail and expands over the content on
-        hover, rather than pushing content around.
+        Mobile: an off-canvas drawer (fixed, slides in/out via translate-x and `show`).
+        Desktop (lg+): a real flex column that's part of normal layout flow, so the
+        content next to it actually shrinks/grows as the sidebar expands on hover
+        instead of the sidebar floating on top of it. It spans the full page height
+        on its own, independent of the header, which now sits beside it instead of
+        stretching across it.
     -->
     <aside
-        class="group fixed inset-y-0 left-0 z-50 flex w-20 -translate-x-full flex-col overflow-hidden border-r border-white/50 backdrop-blur-md transition-all duration-200 ease-out hover:w-64 hover:shadow-xl dark:border-white/10 dark:bg-slate-900/85 lg:translate-x-0"
-        style="background-color: #DCF1F5;"
+        class="group fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 -translate-x-full flex-col overflow-hidden border-r border-white/10 backdrop-blur-md transition-all duration-200 ease-out lg:static lg:inset-auto lg:z-auto lg:w-20 lg:translate-x-0 lg:hover:w-64 lg:hover:shadow-xl"
+        style="background-color: #173528;"
         :class="{ 'w-64 translate-x-0': show }"
     >
         <div class="flex items-center px-4 py-5">
@@ -64,7 +67,7 @@ function initials(name) {
                 <img src="/logo.png" alt="Sacramenta" class="h-16 w-16 object-contain" />
             </Link>
             <span
-                class="ml-3 whitespace-nowrap font-serif text-lg font-medium text-[#3f6470] opacity-0 transition-opacity duration-150 group-hover:opacity-100 dark:text-white"
+                class="ml-3 whitespace-nowrap font-serif text-lg font-medium text-white/90 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
                 :class="{ 'opacity-100': show }"
             >
                 Sacramenta
@@ -81,9 +84,9 @@ function initials(name) {
                 :class="[
                     item.enabled
                         ? (route().current(item.route)
-                            ? 'bg-[#8CA089]/20 text-[#3f6470] dark:bg-[#8CA089]/25 dark:text-white'
-                            : 'text-[#3f6470]/70 hover:bg-[#E4EDE1]/70 hover:text-[#3f6470] dark:text-slate-300/80 dark:hover:bg-white/10 dark:hover:text-white')
-                        : 'cursor-not-allowed text-[#3f6470]/35 dark:text-slate-500/50',
+                            ? 'bg-white/15 text-white'
+                            : 'text-white/60 hover:bg-white/10 hover:text-white')
+                        : 'cursor-not-allowed text-white/25',
                 ]"
             >
                 <svg v-if="item.icon === 'grid'" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -119,7 +122,7 @@ function initials(name) {
                 </span>
                 <span
                     v-if="!item.enabled"
-                    class="ml-auto shrink-0 whitespace-nowrap rounded-full bg-[#3f6470]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#3f6470]/40 opacity-0 transition-opacity duration-150 group-hover:opacity-100 dark:bg-white/10 dark:text-slate-400"
+                    class="ml-auto shrink-0 whitespace-nowrap rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/40 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
                     :class="{ 'opacity-100': show }"
                 >
                     Soon
@@ -128,28 +131,28 @@ function initials(name) {
         </nav>
 
         <!-- Appearance toggle -->
-        <div class="border-t border-[#3f6470]/10 px-3 py-3 dark:border-white/10">
+        <div class="border-t border-white/10 px-3 py-3">
             <ThemeToggle :expanded="show" />
         </div>
 
         <!-- Signed-in user -->
-        <div class="border-t border-[#3f6470]/10 px-3 py-4 dark:border-white/10">
-            <div class="flex items-center gap-1 rounded-xl transition hover:bg-[#E4EDE1]/70 dark:hover:bg-white/10">
+        <div class="border-t border-white/10 px-3 py-4">
+            <div class="flex items-center gap-1 rounded-xl transition hover:bg-white/10">
                 <Link
                     :href="route('profile.edit')"
                     class="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2.5 text-left"
                 >
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#8CA089]/25 text-xs font-semibold text-[#3f6470] dark:bg-[#8CA089]/30 dark:text-white">
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#8CA089]/30 text-xs font-semibold text-white">
                         {{ initials($page.props.auth.user.name) }}
                     </span>
                     <span
                         class="min-w-0 flex-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
                         :class="{ 'opacity-100': show }"
                     >
-                        <span class="block truncate text-sm font-medium text-[#3f6470] dark:text-white">
+                        <span class="block truncate text-sm font-medium text-white">
                             {{ $page.props.auth.user.name }}
                         </span>
-                        <span class="block truncate text-xs text-[#3f6470]/50 dark:text-slate-400">
+                        <span class="block truncate text-xs text-white/50">
                             {{ $page.props.auth.user.email }}
                         </span>
                     </span>
@@ -159,7 +162,7 @@ function initials(name) {
                     method="post"
                     as="button"
                     title="Log out"
-                    class="mr-2 shrink-0 rounded-lg p-2 text-[#3f6470]/40 opacity-0 transition-all duration-150 hover:bg-white hover:text-red-500 group-hover:opacity-100 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-red-400"
+                    class="mr-2 shrink-0 rounded-lg p-2 text-white/40 opacity-0 transition-all duration-150 hover:bg-white hover:text-red-500 group-hover:opacity-100"
                     :class="{ 'opacity-100': show }"
                 >
                     <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">

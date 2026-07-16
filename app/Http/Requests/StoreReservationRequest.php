@@ -28,6 +28,7 @@ class StoreReservationRequest extends FormRequest
             ])],
             'contact_name' => ['required', 'string', 'max:255'],
             'contact_mobile' => ['required', 'string', 'max:30'],
+            'contact_email' => ['nullable', 'email', 'max:255'],
             'contact_address' => ['nullable', 'string', 'max:500'],
             'event_date' => ['required', 'date'],
             'event_time' => ['nullable', 'date_format:H:i'],

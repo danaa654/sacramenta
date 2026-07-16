@@ -17,7 +17,7 @@ const { isDark, toggle } = useAppearance();
         role="switch"
         :aria-checked="isDark"
         title="Toggle light / dark mode"
-        class="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-[#3f6470]/70 transition hover:bg-[#E4EDE1]/70 hover:text-[#3f6470] dark:text-slate-300/80 dark:hover:bg-white/10 dark:hover:text-white"
+        class="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-white/60 transition hover:bg-white/10 hover:text-white"
         @click="toggle"
     >
         <!-- Sun / moon icon -->

@@ -15,6 +15,7 @@ class Reservation extends Model
         'type',
         'contact_name',
         'contact_mobile',
+        'contact_email',
         'contact_address',
         'event_date',
         'event_time',

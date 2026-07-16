@@ -31,6 +31,33 @@ const statusStyles = {
     archived: 'bg-white text-[#3f6470]/50 border-[#3f6470]/15',
 };
 
+const paymentStatusStyles = {
+    unpaid: 'bg-white text-[#3f6470]/70 border-[#3f6470]/20',
+    partial: 'bg-[#F7E9C6] text-[#7a5a1a] border-[#c9a13a]',
+    paid: 'bg-[#CFE4C7] text-[#2f5a2a] border-[#5e9a53]',
+    waived: 'bg-slate-100 text-[#3f6470]/50 border-[#3f6470]/15',
+};
+
+const paymentStatusLabels = {
+    unpaid: 'Unpaid',
+    partial: 'Partial',
+    paid: 'Paid',
+    waived: 'Waived',
+};
+
+function peso(amount) {
+    return new Intl.NumberFormat('en-PH', {
+        style: 'currency',
+        currency: 'PHP',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+    }).format(Number(amount ?? 0));
+}
+
+function balanceDue(r) {
+    return Math.max(0, Number(r.offering_amount ?? 0) - Number(r.amount_paid ?? 0));
+}
+
 function formatDate(date) {
     return new Date(date).toLocaleDateString('en-US', {
         month: 'short',
@@ -81,6 +108,7 @@ function destroy(reservation) {
                                 <th class="px-6 py-3.5">Date</th>
                                 <th class="px-6 py-3.5">Priest</th>
                                 <th class="px-6 py-3.5">Status</th>
+                                <th class="px-6 py-3.5">Payment</th>
                                 <th class="px-6 py-3.5 text-right">Actions</th>
                             </tr>
                         </thead>
@@ -107,6 +135,23 @@ function destroy(reservation) {
                                         {{ r.status }}
                                     </span>
                                 </td>
+                                <td class="whitespace-nowrap px-6 py-4">
+                                    <template v-if="r.offering_amount !== null">
+                                        <span
+                                            class="rounded-full border px-3 py-1 text-xs font-medium"
+                                            :class="paymentStatusStyles[r.payment_status] ?? paymentStatusStyles.unpaid"
+                                        >
+                                            {{ paymentStatusLabels[r.payment_status] ?? r.payment_status }}
+                                        </span>
+                                        <p
+                                            v-if="balanceDue(r) > 0"
+                                            class="mt-1 text-xs text-[#8a5a1a]"
+                                        >
+                                            {{ peso(balanceDue(r)) }} due
+                                        </p>
+                                    </template>
+                                    <span v-else class="text-xs text-[#3f6470]/30">—</span>
+                                </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-right text-sm">
                                     <Link :href="route('reservations.edit', r.id)" class="font-medium text-[#3f6470] hover:underline">
                                         Edit
@@ -118,7 +163,7 @@ function destroy(reservation) {
                             </tr>
 
                             <tr v-if="!reservations.data.length">
-                                <td colspan="6" class="px-6 py-12 text-center text-sm text-[#3f6470]/40">
+                                <td colspan="7" class="px-6 py-12 text-center text-sm text-[#3f6470]/40">
                                     No reservations yet. Create the first one to get started.
                                 </td>
                             </tr>

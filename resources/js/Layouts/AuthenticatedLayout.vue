@@ -37,17 +37,14 @@ const showingSidebar = ref(false);
                 @toggle="showingSidebar = !showingSidebar"
             />
 
-            <!-- Reserves space for the collapsed icon rail so page content isn't hidden under it -->
-            <div class="hidden w-20 shrink-0 lg:block"></div>
-
-            <div class="flex min-h-screen flex-1 flex-col">
+            <div class="flex min-h-screen flex-1 flex-col overflow-x-hidden">
                 <!-- Page Heading -->
                 <header
-                    class="border-b border-white/50 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/60"
-                    style="background-color: #DCF1F5;"
+                    class="sticky top-0 z-20 border-b border-white/10 backdrop-blur-md"
+                    style="background-color: #173528;"
                     v-if="$slots.header"
                 >
-                    <div class="px-4 py-2 sm:px-6 lg:px-8">
+                    <div class="px-4 py-3 sm:px-6 lg:px-8">
                         <slot name="header" />
                     </div>
                 </header>

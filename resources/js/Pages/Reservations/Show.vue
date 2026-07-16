@@ -158,6 +158,10 @@ const confirmTooltip = computed(() => {
                             <dt class="field-label">Mobile Number</dt>
                             <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.contact_mobile }}</dd>
                         </div>
+                        <div>
+                            <dt class="field-label">Email</dt>
+                            <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.contact_email || '—' }}</dd>
+                        </div>
                         <div class="sm:col-span-2">
                             <dt class="field-label">Address</dt>
                             <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.contact_address || '—' }}</dd>

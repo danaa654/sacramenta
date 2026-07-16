@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreReservationRequest;
+use App\Mail\ReservationConfirmed;
 use App\Models\Priest;
 use App\Models\Reservation;
 use App\Services\SchedulingConflictService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -147,6 +149,8 @@ class ReservationController extends Controller
             'status' => ['required', Rule::in(['draft', 'confirmed', 'completed', 'archived'])],
         ]);
 
+        $wasConfirmed = $reservation->status === 'confirmed';
+
         if ($validated['status'] === 'confirmed' && $reservation->status !== 'confirmed') {
             $reservation->loadMissing('requirements');
             $missing = $reservation->incompleteRequirementLabels();
@@ -200,6 +204,11 @@ class ReservationController extends Controller
         }
 
         $reservation->update(['status' => $validated['status']]);
+
+        if ($validated['status'] === 'confirmed' && ! $wasConfirmed && $reservation->contact_email) {
+            Mail::to($reservation->contact_email)
+                ->send(new ReservationConfirmed($reservation->loadMissing('priest')));
+        }
 
         return back()->with('success', 'Reservation status updated.');
     }
