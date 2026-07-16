@@ -14,10 +14,17 @@ const typeLabels = {
     wedding: 'Wedding',
     baptism: 'Baptism',
     burial: 'Burial',
+    first_communion: 'First Communion',
+    confirmation: 'Confirmation',
     pamisa_sa_kalag: 'Pamisa sa Kalag',
     chapel_mass: 'Chapel Mass',
     school_mass: 'School Mass',
     house_blessing: 'House Blessing',
+    business_blessing: 'Business / Office Blessing',
+    vehicle_blessing: 'Vehicle / Article Blessing',
+    anointing_of_the_sick: 'Anointing of the Sick',
+    spiritual_direction: 'Spiritual Direction / Confession',
+    special_intention: 'Special Intention / Petition',
     others: 'Others',
 };
 
@@ -50,6 +57,28 @@ function detailLabel(key) {
         .split('_')
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' ');
+}
+
+const detailValueLabels = {
+    service_type: { funeral_mass: 'Full Funeral Mass', funeral_service: 'Funeral Service (No Mass)' },
+    committal_type: { cemetery: 'Cemetery', crematorium: 'Crematorium' },
+    baptism_type: { individual: 'Individual / Private', group: 'Group / Community' },
+    ceremony_type: { nuptial_mass: 'Nuptial Mass (with Communion)', liturgy_of_the_word: 'Liturgy of the Word Only (No Mass)' },
+    occasion: {
+        first_friday: 'First Friday',
+        graduation: 'Graduation',
+        patron_feast: "Patron Saint's Feast",
+        opening_of_school_year: 'Opening of School Year',
+        other: 'Other',
+    },
+    venue: { on_campus: 'On Campus (gym/auditorium)', church: 'At the Church' },
+    booking_mode: { school_batch: 'School / Group Booking', individual: 'Individual / Parish Class' },
+};
+
+function detailValue(key, value) {
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+
+    return detailValueLabels[key]?.[value] ?? (value || '—');
 }
 
 const detailEntries = Object.entries(props.reservation.details ?? {}).filter(
@@ -205,7 +234,7 @@ const confirmTooltip = computed(() => {
                         <div v-for="([key, value]) in detailEntries" :key="key">
                             <dt class="field-label">{{ detailLabel(key) }}</dt>
                             <dd class="mt-1 whitespace-pre-line text-sm text-[#2f4a4a]">
-                                {{ typeof value === 'boolean' ? (value ? 'Yes' : 'No') : (value || '—') }}
+                                {{ detailValue(key, value) }}
                             </dd>
                         </div>
                     </dl>

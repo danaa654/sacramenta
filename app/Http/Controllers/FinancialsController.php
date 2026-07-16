@@ -15,10 +15,17 @@ class FinancialsController extends Controller
         'wedding' => 'Wedding',
         'baptism' => 'Baptism',
         'burial' => 'Burial',
+        'first_communion' => 'First Communion',
+        'confirmation' => 'Confirmation',
         'pamisa_sa_kalag' => 'Pamisa sa Kalag',
         'chapel_mass' => 'Chapel Mass',
         'school_mass' => 'School Mass',
         'house_blessing' => 'House Blessing',
+        'business_blessing' => 'Business / Office Blessing',
+        'vehicle_blessing' => 'Vehicle / Article Blessing',
+        'anointing_of_the_sick' => 'Anointing of the Sick',
+        'spiritual_direction' => 'Spiritual Direction / Confession',
+        'special_intention' => 'Special Intention / Petition',
         'others' => 'Others',
     ];
 
