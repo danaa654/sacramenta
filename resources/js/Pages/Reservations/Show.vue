@@ -112,14 +112,14 @@ const confirmTooltip = computed(() => {
                     <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[#8CA089]">
                         Sacramenta
                     </p>
-                    <h2 class="font-serif text-3xl font-medium leading-tight text-[#3f6470]">
+                    <h2 class="font-serif text-3xl font-medium leading-tight text-[#173528]">
                         Reservation Details
                     </h2>
                 </div>
                 <div class="flex items-center gap-3">
                     <Link
                         :href="route('reservations.edit', reservation.id)"
-                        class="rounded-full border border-[#3f6470]/20 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60"
+                        class="rounded-full border border-[#173528]/25 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#173528] transition hover:bg-[#173528]/5"
                     >
                         Edit
                     </Link>

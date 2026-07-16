@@ -40,8 +40,8 @@ const showingSidebar = ref(false);
             <div class="flex min-h-screen flex-1 flex-col overflow-x-hidden">
                 <!-- Page Heading -->
                 <header
-                    class="sticky top-0 z-20 border-b border-white/10 backdrop-blur-md"
-                    style="background-color: #173528;"
+                    class="sticky top-0 z-20 border-b border-black/5 backdrop-blur-xl"
+                    style="background-color: rgba(255, 248, 237, 0.72); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);"
                     v-if="$slots.header"
                 >
                     <div class="px-4 py-3 sm:px-6 lg:px-8">

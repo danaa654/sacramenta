@@ -121,7 +121,7 @@ function saveEdit(r) {
                 <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#8CA089]">
                     Sacramenta
                 </p>
-                <h2 class="font-serif text-2xl font-medium leading-tight text-[#3f6470] dark:text-white">
+                <h2 class="font-serif text-2xl font-medium leading-tight text-[#173528]">
                     Financials
                 </h2>
             </div>

@@ -1,6 +1,6 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 
 defineProps({
     canLogin: {
@@ -55,6 +55,42 @@ const pillars = [
     },
 ];
 
+const aboutImages = ['/img/1.jpg', '/img/2.jpg', '/img/3.jpg', '/img/4.jpg'];
+const activeAboutImage = ref(0);
+const lightboxOpen = ref(false);
+let aboutCarouselTimer = null;
+
+function openLightbox() {
+    lightboxOpen.value = true;
+    clearInterval(aboutCarouselTimer);
+}
+
+function closeLightbox() {
+    lightboxOpen.value = false;
+    restartAboutCarousel();
+}
+
+function restartAboutCarousel() {
+    clearInterval(aboutCarouselTimer);
+    aboutCarouselTimer = setInterval(() => {
+        activeAboutImage.value = (activeAboutImage.value + 1) % aboutImages.length;
+    }, 4000);
+}
+
+function onLightboxKeydown(e) {
+    if (e.key === 'Escape') closeLightbox();
+}
+
+onMounted(() => {
+    restartAboutCarousel();
+    window.addEventListener('keydown', onLightboxKeydown);
+});
+
+onUnmounted(() => {
+    clearInterval(aboutCarouselTimer);
+    window.removeEventListener('keydown', onLightboxKeydown);
+});
+
 const serviceGroups = [
     {
         title: 'Sacramental Services',
@@ -107,6 +143,118 @@ const serviceGroups = [
         ],
     },
 ];
+
+// Flatten all services into one circular carousel deck
+const carouselItems = serviceGroups.flatMap((group) =>
+    group.items.map((item) => ({
+        ...item,
+        group: group.title,
+    })),
+);
+
+const activeIndex = ref(0);
+const total = carouselItems.length;
+
+function normalize(i) {
+    return ((i % total) + total) % total;
+}
+
+function goTo(i) {
+    activeIndex.value = normalize(i);
+    restartAutoplay();
+}
+
+function next() {
+    goTo(activeIndex.value + 1);
+}
+
+function prev() {
+    goTo(activeIndex.value - 1);
+}
+
+// Shortest circular distance of card i from the active card (e.g. -2,-1,0,1,2)
+function offsetFor(i) {
+    let diff = (i - activeIndex.value) % total;
+    if (diff > total / 2) diff -= total;
+    if (diff < -total / 2) diff += total;
+    return diff;
+}
+
+function cardStyle(i) {
+    const offset = offsetFor(i);
+    const abs = Math.abs(offset);
+
+    if (abs > 2) {
+        return {
+            transform: `translate(-50%, -50%) translateX(${offset > 0 ? 1 : -1}px) scale(0.5)`,
+            opacity: 0,
+            zIndex: 0,
+            pointerEvents: 'none',
+        };
+    }
+
+    const spacing = 250;
+    const angle = offset * 26;
+    const scale = 1 - abs * 0.18;
+    const opacity = 1 - abs * 0.35;
+    const translateX = offset * spacing;
+    const translateZ = -abs * 120;
+
+    return {
+        transform: `translate(-50%, -50%) translateX(${translateX}px) translateZ(${translateZ}px) rotateY(${-angle}deg) scale(${scale})`,
+        opacity,
+        zIndex: 10 - abs,
+    };
+}
+
+let autoplayTimer = null;
+function restartAutoplay() {
+    clearInterval(autoplayTimer);
+    autoplayTimer = setInterval(next, 5000);
+}
+
+onMounted(() => {
+    restartAutoplay();
+});
+onUnmounted(() => {
+    clearInterval(autoplayTimer);
+});
+
+let dragStartX = 0;
+let dragging = false;
+let dragDelta = 0;
+
+function dragStart(e) {
+    dragging = true;
+    dragDelta = 0;
+    dragStartX = e.touches ? e.touches[0].clientX : e.clientX;
+    clearInterval(autoplayTimer);
+}
+
+function dragMove(e) {
+    if (!dragging) return;
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    dragDelta = x - dragStartX;
+}
+
+function dragEnd() {
+    if (!dragging) return;
+    dragging = false;
+    const threshold = 45;
+    if (dragDelta > threshold) {
+        prev();
+    } else if (dragDelta < -threshold) {
+        next();
+    } else {
+        restartAutoplay();
+    }
+    dragDelta = 0;
+}
+
+function onKeydown(e) {
+    if (e.key === 'ArrowLeft') prev();
+    if (e.key === 'ArrowRight') next();
+}
 
 const mobileMenuOpen = ref(false);
 
@@ -266,50 +414,120 @@ function closeMobileMenu() {
 
         <!-- About -->
         <section id="about" class="scroll-mt-24 border-t border-[#3f6470]/10 py-20 sm:py-28">
-            <div class="mx-auto max-w-5xl px-4 sm:px-6 md:px-10">
-                <div class="text-center">
-                    <span class="text-xs font-semibold uppercase tracking-[0.25em] text-[#8CA089]">About Sacramenta</span>
-                    <p class="mt-3 font-serif text-lg italic text-[#3f6470]/70">&ldquo;Ordinem in Sacris&rdquo; &mdash; Bringing order to sacred duties.</p>
-                    <h2 class="mt-6 font-serif text-3xl font-medium leading-tight text-[#3f6470] sm:text-4xl">
-                        A dedicated, admin-only Church Reservation Management System
-                    </h2>
-                    <p class="mx-auto mt-6 max-w-3xl text-base leading-relaxed text-[#3f6470]/80 sm:text-lg">
-                        Designed to bridge timeless parish traditions with modern administrative efficiency, Sacramenta
-                        is built specifically for church secretaries, parish administrators, and priests. It simplifies
-                        the complex logistics of managing parish life &mdash; from recording life's most sacred milestones
-                        to compiling daily Mass intentions (Pamisa) &mdash; eliminating chaotic paper trails, preventing
-                        calendar double-bookings, and securing canonical records. It acts as a digital companion to the
-                        traditional leather-bound parish ledgers (Libros), ensuring that every sacrament, blessing, and
-                        community Mass is recorded with absolute care, accuracy, and reverence.
-                    </p>
+            <div class="mx-auto max-w-6xl px-4 sm:px-6 md:px-10">
+                <div class="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
+                    <div>
+                        <span class="text-xs font-semibold uppercase tracking-[0.25em] text-[#8CA089]">About Sacramenta</span>
+                        <p class="mt-3 font-serif text-lg italic text-[#3f6470]/70">&ldquo;Ordinem in Sacris&rdquo; &mdash; Bringing order to sacred duties.</p>
+                        <h2 class="mt-6 font-serif text-3xl font-medium leading-tight text-[#3f6470] sm:text-4xl">
+                            A dedicated, admin-only Church Reservation Management System
+                        </h2>
+                        <p class="mt-6 max-w-xl text-base leading-relaxed text-[#3f6470]/80 sm:text-lg">
+                            Sacramenta bridges parish tradition with modern efficiency &mdash; replacing chaotic
+                            paper trails with a secure digital ledger for every sacrament, blessing, and Mass,
+                            so nothing is ever double-booked or lost.
+                        </p>
+                    </div>
+
+                    <div
+                        class="group relative aspect-[4/3] w-full cursor-zoom-in overflow-hidden rounded-2xl shadow-lg"
+                        @click="openLightbox"
+                    >
+                        <img
+                            v-for="(image, index) in aboutImages"
+                            :key="image"
+                            :src="image"
+                            alt="Sacramenta"
+                            class="absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ease-in-out"
+                            :class="index === activeAboutImage ? 'opacity-100' : 'opacity-0'"
+                        />
+
+                        <div class="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/10">
+                            <div class="flex h-11 w-11 scale-90 items-center justify-center rounded-full bg-white/90 text-[#3f6470] opacity-0 shadow-md transition group-hover:scale-100 group-hover:opacity-100">
+                                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                                    <circle cx="11" cy="11" r="7" />
+                                    <path d="M21 21l-4.3-4.3M11 8v6M8 11h6" stroke-linecap="round" />
+                                </svg>
+                            </div>
+                        </div>
+
+                        <div class="absolute inset-x-0 bottom-4 flex justify-center gap-2">
+                            <button
+                                v-for="(image, index) in aboutImages"
+                                :key="'dot-' + image"
+                                type="button"
+                                class="h-2 w-2 rounded-full transition"
+                                :class="index === activeAboutImage ? 'bg-white' : 'bg-white/50'"
+                                @click.stop="activeAboutImage = index"
+                            ></button>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="mt-16 grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <!-- Lightbox -->
+                <Transition name="fade">
+                    <div
+                        v-if="lightboxOpen"
+                        class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm sm:p-8"
+                        @click="closeLightbox"
+                    >
+                        <button
+                            type="button"
+                            aria-label="Close"
+                            class="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:right-6 sm:top-6"
+                            @click.stop="closeLightbox"
+                        >
+                            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                                <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
+                            </svg>
+                        </button>
+
+                        <img
+                            :src="aboutImages[activeAboutImage]"
+                            alt="Sacramenta"
+                            class="max-h-[85vh] max-w-full rounded-xl object-contain shadow-2xl"
+                            @click.stop
+                        />
+
+                        <div class="absolute inset-x-0 bottom-6 flex justify-center gap-2">
+                            <button
+                                v-for="(image, index) in aboutImages"
+                                :key="'lightbox-dot-' + image"
+                                type="button"
+                                class="h-2 w-2 rounded-full transition"
+                                :class="index === activeAboutImage ? 'bg-white' : 'bg-white/40'"
+                                @click.stop="activeAboutImage = index"
+                            ></button>
+                        </div>
+                    </div>
+                </Transition>
+
+                <div class="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-4">
                     <div
                         v-for="pillar in pillars"
                         :key="pillar.title"
-                        class="rounded-2xl border border-[#3f6470]/10 bg-white/50 p-6 transition hover:border-[#8CA089]/40 hover:bg-white/80"
+                        class="rounded-xl border border-[#3f6470]/10 bg-white/50 p-4 transition hover:border-[#8CA089]/40 hover:bg-white/80"
                     >
-                        <div class="flex h-11 w-11 items-center justify-center rounded-full bg-[#8CA089]/15 text-[#8CA089]">
-                            <svg v-if="pillar.icon === 'twin'" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                        <div class="flex h-8 w-8 items-center justify-center rounded-full bg-[#8CA089]/15 text-[#8CA089]">
+                            <svg v-if="pillar.icon === 'twin'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                                 <rect x="3" y="4" width="8" height="16" rx="1.5" />
                                 <rect x="13" y="4" width="8" height="16" rx="1.5" />
                                 <path d="M6 8h2M6 12h2M16 8h2M16 12h2" stroke-linecap="round" />
                             </svg>
-                            <svg v-else-if="pillar.icon === 'shield'" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                            <svg v-else-if="pillar.icon === 'shield'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                                 <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" stroke-linejoin="round" />
                                 <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round" />
                             </svg>
-                            <svg v-else-if="pillar.icon === 'peace'" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                            <svg v-else-if="pillar.icon === 'peace'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                                 <circle cx="12" cy="12" r="9" />
                                 <path d="M12 3v18M12 12L6 18M12 12l6 6" stroke-linecap="round" />
                             </svg>
-                            <svg v-else class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                            <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                                 <path d="M4 19h16M6 19V9l6-4 6 4v10M10 19v-5h4v5" stroke-linejoin="round" />
                             </svg>
                         </div>
-                        <h3 class="mt-4 font-serif text-lg text-[#3f6470]">{{ pillar.title }}</h3>
-                        <p class="mt-2 text-sm leading-relaxed text-[#3f6470]/75">{{ pillar.desc }}</p>
+                        <h3 class="mt-3 font-serif text-sm leading-snug text-[#3f6470] sm:text-base">{{ pillar.title }}</h3>
+                        <p class="mt-1.5 text-xs leading-relaxed text-[#3f6470]/75">{{ pillar.desc }}</p>
                     </div>
                 </div>
             </div>
@@ -328,23 +546,76 @@ function closeMobileMenu() {
                     </p>
                 </div>
 
-                <div class="mt-14 space-y-14">
-                    <div v-for="group in serviceGroups" :key="group.title">
-                        <div class="mb-6 border-l-2 border-[#8CA089] pl-4">
-                            <h3 class="font-serif text-xl text-[#3f6470] sm:text-2xl">{{ group.title }}</h3>
-                            <p class="mt-1 text-sm text-[#3f6470]/70">{{ group.subtitle }}</p>
-                        </div>
-                        <div class="grid grid-cols-1 gap-5 md:grid-cols-3">
-                            <div
-                                v-for="item in group.items"
-                                :key="item.name"
-                                class="rounded-2xl border border-[#3f6470]/10 bg-[#F7F5EC] p-6 shadow-sm transition hover:shadow-md"
-                            >
-                                <h4 class="font-serif text-base font-semibold text-[#3f6470] sm:text-lg">{{ item.name }}</h4>
-                                <p class="mt-2 text-sm leading-relaxed text-[#3f6470]/75">{{ item.desc }}</p>
-                            </div>
+                <div
+                    class="carousel-wrap relative mt-14 select-none"
+                    tabindex="0"
+                    @keydown="onKeydown"
+                >
+                    <div
+                        class="carousel-stage relative mx-auto h-[420px] max-w-4xl sm:h-[380px]"
+                        @mousedown="dragStart"
+                        @mousemove="dragMove"
+                        @mouseup="dragEnd"
+                        @mouseleave="dragEnd"
+                        @touchstart.passive="dragStart"
+                        @touchmove.passive="dragMove"
+                        @touchend="dragEnd"
+                    >
+                        <div
+                            v-for="(item, i) in carouselItems"
+                            :key="item.name"
+                            class="carousel-card absolute left-1/2 top-1/2 w-[260px] cursor-pointer rounded-2xl border border-[#3f6470]/10 bg-[#F7F5EC] p-6 shadow-md transition-all duration-500 ease-out sm:w-[300px]"
+                            :style="cardStyle(i)"
+                            @click="i !== activeIndex && goTo(i)"
+                        >
+                            <span class="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8CA089]">
+                                {{ item.group }}
+                            </span>
+                            <h4 class="mt-2 font-serif text-base font-semibold text-[#3f6470] sm:text-lg">
+                                {{ item.name }}
+                            </h4>
+                            <p class="mt-2 text-sm leading-relaxed text-[#3f6470]/75">{{ item.desc }}</p>
                         </div>
                     </div>
+
+                    <!-- Prev / Next arrows -->
+                    <button
+                        type="button"
+                        aria-label="Previous service"
+                        class="absolute left-0 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-[#3f6470]/15 bg-white/80 text-[#3f6470] shadow-sm transition hover:bg-white sm:flex"
+                        @click="prev"
+                    >
+                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                    <button
+                        type="button"
+                        aria-label="Next service"
+                        class="absolute right-0 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-[#3f6470]/15 bg-white/80 text-[#3f6470] shadow-sm transition hover:bg-white sm:flex"
+                        @click="next"
+                    >
+                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+
+                    <!-- Dots -->
+                    <div class="mt-8 flex justify-center gap-2">
+                        <button
+                            v-for="(item, i) in carouselItems"
+                            :key="'dot-' + item.name"
+                            type="button"
+                            :aria-label="'Go to ' + item.name"
+                            class="h-2 rounded-full transition-all"
+                            :class="i === activeIndex ? 'w-6 bg-[#8CA089]' : 'w-2 bg-[#3f6470]/25 hover:bg-[#3f6470]/40'"
+                            @click="goTo(i)"
+                        ></button>
+                    </div>
+
+                    <p class="mt-4 text-center text-xs uppercase tracking-[0.2em] text-[#3f6470]/40 sm:hidden">
+                        Swipe to explore
+                    </p>
                 </div>
             </div>
         </section>
@@ -368,5 +639,49 @@ function closeMobileMenu() {
 <style scoped>
 :global(html) {
     scroll-behavior: smooth;
+}
+
+.card-float {
+    animation: cardFloat 4s ease-in-out infinite;
+}
+
+@keyframes cardFloat {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .card-float {
+        animation: none;
+    }
+}
+
+.carousel-stage {
+    perspective: 1400px;
+    transform-style: preserve-3d;
+    outline: none;
+}
+
+.carousel-card {
+    transform-style: preserve-3d;
+    backface-visibility: hidden;
+}
+
+.carousel-wrap:focus-visible {
+    outline: none;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 0.25s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
 }
 </style>

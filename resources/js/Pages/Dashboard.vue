@@ -71,11 +71,11 @@ function formatDate(date) {
                     <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[#8CA089]">
                         Sacramenta
                     </p>
-                    <h2 class="font-serif text-3xl font-medium leading-tight text-[#3f6470] dark:text-white">
+                    <h2 class="font-serif text-3xl font-medium leading-tight text-[#173528]">
                         Welcome back
                     </h2>
                 </div>
-                <span class="hidden text-sm text-[#3f6470]/60 dark:text-slate-400 dark:text-slate-400 sm:block">
+                <span class="hidden text-sm text-[#173528]/60 sm:block">
                     {{ new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) }}
                 </span>
             </div>

@@ -58,8 +58,8 @@ function initials(name) {
         stretching across it.
     -->
     <aside
-        class="group fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 -translate-x-full flex-col overflow-hidden border-r border-white/10 backdrop-blur-md transition-all duration-200 ease-out lg:static lg:inset-auto lg:z-auto lg:w-20 lg:translate-x-0 lg:hover:w-64 lg:hover:shadow-xl"
-        style="background-color: #173528;"
+        class="group fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 -translate-x-full flex-col overflow-hidden border-r border-black/5 backdrop-blur-xl transition-all duration-200 ease-out lg:static lg:inset-auto lg:z-auto lg:w-20 lg:translate-x-0 lg:hover:w-64 lg:hover:shadow-xl"
+        style="background-color: rgba(255, 248, 237, 0.72); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);"
         :class="{ 'w-64 translate-x-0': show }"
     >
         <div class="flex items-center px-4 py-5">
@@ -67,7 +67,7 @@ function initials(name) {
                 <img src="/logo.png" alt="Sacramenta" class="h-16 w-16 object-contain" />
             </Link>
             <span
-                class="ml-3 whitespace-nowrap font-serif text-lg font-medium text-white/90 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+                class="ml-3 whitespace-nowrap font-serif text-lg font-medium text-[#173528]/90 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
                 :class="{ 'opacity-100': show }"
             >
                 Sacramenta
@@ -84,9 +84,9 @@ function initials(name) {
                 :class="[
                     item.enabled
                         ? (route().current(item.route)
-                            ? 'bg-white/15 text-white'
-                            : 'text-white/60 hover:bg-white/10 hover:text-white')
-                        : 'cursor-not-allowed text-white/25',
+                            ? 'bg-[#173528]/10 text-[#173528]'
+                            : 'text-[#173528]/55 hover:bg-[#173528]/5 hover:text-[#173528]')
+                        : 'cursor-not-allowed text-[#173528]/25',
                 ]"
             >
                 <svg v-if="item.icon === 'grid'" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -122,7 +122,7 @@ function initials(name) {
                 </span>
                 <span
                     v-if="!item.enabled"
-                    class="ml-auto shrink-0 whitespace-nowrap rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/40 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+                    class="ml-auto shrink-0 whitespace-nowrap rounded-full bg-[#173528]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#173528]/40 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
                     :class="{ 'opacity-100': show }"
                 >
                     Soon
@@ -131,28 +131,28 @@ function initials(name) {
         </nav>
 
         <!-- Appearance toggle -->
-        <div class="border-t border-white/10 px-3 py-3">
+        <div class="border-t border-black/5 px-3 py-3">
             <ThemeToggle :expanded="show" />
         </div>
 
         <!-- Signed-in user -->
-        <div class="border-t border-white/10 px-3 py-4">
-            <div class="flex items-center gap-1 rounded-xl transition hover:bg-white/10">
+        <div class="border-t border-black/5 px-3 py-4">
+            <div class="flex items-center gap-1 rounded-xl transition hover:bg-[#173528]/5">
                 <Link
                     :href="route('profile.edit')"
                     class="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2.5 text-left"
                 >
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#8CA089]/30 text-xs font-semibold text-white">
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#8CA089]/30 text-xs font-semibold text-[#173528]">
                         {{ initials($page.props.auth.user.name) }}
                     </span>
                     <span
                         class="min-w-0 flex-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
                         :class="{ 'opacity-100': show }"
                     >
-                        <span class="block truncate text-sm font-medium text-white">
+                        <span class="block truncate text-sm font-medium text-[#173528]">
                             {{ $page.props.auth.user.name }}
                         </span>
-                        <span class="block truncate text-xs text-white/50">
+                        <span class="block truncate text-xs text-[#173528]/50">
                             {{ $page.props.auth.user.email }}
                         </span>
                     </span>
@@ -162,7 +162,7 @@ function initials(name) {
                     method="post"
                     as="button"
                     title="Log out"
-                    class="mr-2 shrink-0 rounded-lg p-2 text-white/40 opacity-0 transition-all duration-150 hover:bg-white hover:text-red-500 group-hover:opacity-100"
+                    class="mr-2 shrink-0 rounded-lg p-2 text-[#173528]/40 opacity-0 transition-all duration-150 hover:bg-white hover:text-red-500 group-hover:opacity-100"
                     :class="{ 'opacity-100': show }"
                 >
                     <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">

@@ -31,13 +31,13 @@ defineProps({
                     <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[#8CA089]">
                         Sacramenta
                     </p>
-                    <h2 class="font-serif text-3xl font-medium leading-tight text-[#3f6470]">
+                    <h2 class="font-serif text-3xl font-medium leading-tight text-[#173528]">
                         New Reservation
                     </h2>
                 </div>
                 <Link
                     :href="route('reservations.index')"
-                    class="text-sm font-medium text-[#3f6470]/70 transition hover:text-[#3f6470]"
+                    class="text-sm font-medium text-[#173528]/60 transition hover:text-[#173528]"
                 >
                     &larr; Back to Reservations
                 </Link>

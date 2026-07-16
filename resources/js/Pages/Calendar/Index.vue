@@ -180,7 +180,7 @@ function formatTime(time) {
                     <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#8CA089]">
                         Sacramenta
                     </p>
-                    <h2 class="font-serif text-2xl font-medium leading-tight text-[#3f6470] dark:text-white">
+                    <h2 class="font-serif text-2xl font-medium leading-tight text-[#173528]">
                         Calendar
                     </h2>
                 </div>
@@ -188,7 +188,7 @@ function formatTime(time) {
                 <div class="flex items-center gap-2">
                     <select
                         v-model="selectedPriest"
-                        class="rounded-full border border-[#3f6470]/20 bg-white/80 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#3f6470] dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-200"
+                        class="rounded-full border border-[#173528]/15 bg-[#173528]/5 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#173528]"
                     >
                         <option value="all">All Priests</option>
                         <option v-for="priest in priests" :key="priest.id" :value="priest.id">

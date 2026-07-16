@@ -17,7 +17,7 @@ const { isDark, toggle } = useAppearance();
         role="switch"
         :aria-checked="isDark"
         title="Toggle light / dark mode"
-        class="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-white/60 transition hover:bg-white/10 hover:text-white"
+        class="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-[#173528]/60 transition hover:bg-[#173528]/5 hover:text-[#173528]"
         @click="toggle"
     >
         <!-- Sun / moon icon -->
@@ -38,11 +38,11 @@ const { isDark, toggle } = useAppearance();
 
         <!-- Switch track -->
         <span
-            class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-            :class="[isDark ? 'bg-[#8CA089]' : 'bg-[#3f6470]/20', { 'opacity-100': expanded }]"
+            class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full opacity-0 transition-colors duration-200 group-hover:opacity-100"
+            :class="[isDark ? 'bg-[#F4A259]' : 'bg-[#8CA089]', { 'opacity-100': expanded }]"
         >
             <span
-                class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition"
+                class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200"
                 :class="isDark ? 'translate-x-[19px]' : 'translate-x-[3px]'"
             ></span>
         </span>
