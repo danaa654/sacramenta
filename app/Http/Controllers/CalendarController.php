@@ -44,7 +44,7 @@ class CalendarController extends Controller
         $start = Carbon::create($year, $month, 1)->startOfMonth();
         $end = $start->copy()->endOfMonth();
 
-        $reservations = Reservation::with('priest:id,name')
+        $reservations = Reservation::with('priest:id,name', 'location:id,name')
             ->whereBetween('event_date', [$start->toDateString(), $end->toDateString()])
             ->orderBy('event_date')
             ->orderBy('event_time')
@@ -53,6 +53,8 @@ class CalendarController extends Controller
         return Inertia::render('Calendar/Index', [
             'reservations' => $reservations,
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
+            'colors' => config('calendar.colors'),
+            'defaultColor' => config('calendar.default_color'),
             'month' => $month,
             'year' => $year,
         ]);

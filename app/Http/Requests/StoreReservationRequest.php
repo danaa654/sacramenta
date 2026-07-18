@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Location;
 use App\Models\Priest;
 use App\Services\SchedulingConflictService;
 use Carbon\Carbon;
@@ -36,6 +37,7 @@ class StoreReservationRequest extends FormRequest
             'event_date' => ['required', 'date'],
             'event_time' => ['nullable', 'date_format:H:i'],
             'priest_id' => ['nullable', 'exists:priests,id'],
+            'location_id' => ['nullable', 'exists:locations,id'],
             'offering_amount' => ['nullable', 'numeric', 'min:0'],
         ], $this->conditionalRules($type));
     }
@@ -85,6 +87,31 @@ class StoreReservationRequest extends FormRequest
                 $validator->errors()->add(
                     'event_time',
                     "{$priestName} already has a confirmed reservation at {$conflictTime} on {$conflictDate}."
+                );
+
+                return;
+            }
+        }
+
+        $locationId = $this->input('location_id');
+
+        if ($locationId) {
+            $conflict = $service->findLocationConflict(
+                $locationId,
+                $date,
+                $time,
+                $type,
+                $currentReservation?->id
+            );
+
+            if ($conflict) {
+                $locationName = Location::find($locationId)?->name ?? 'That venue';
+                $conflictTime = Carbon::parse($conflict->event_time)->format('g:i A');
+                $conflictDate = $conflict->event_date->format('F j, Y');
+
+                $validator->errors()->add(
+                    'location_id',
+                    "{$locationName} is already booked for a confirmed reservation at {$conflictTime} on {$conflictDate}."
                 );
 
                 return;

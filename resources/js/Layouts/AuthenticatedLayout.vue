@@ -1,26 +1,22 @@
 <script setup>
 import { ref } from 'vue';
 import Sidebar from '@/Components/Sidebar.vue';
+import NotificationBell from '@/Components/NotificationBell.vue';
 
 const showingSidebar = ref(false);
 </script>
 
 <template>
-    <div class="relative min-h-screen">
-        <!-- Fixed church background -->
-        <div
-            class="fixed inset-0 -z-20 bg-cover bg-center bg-no-repeat"
-            style="background-image: url('/background.png');"
-        ></div>
-        <!-- Soft wash so content stays readable over the photo -->
+    <div class="relative h-screen overflow-hidden">
+        <!-- Solid cream background, matches sidebar palette -->
         <div
             class="fixed inset-0 -z-10 dark:hidden"
-            style="background: linear-gradient(180deg, rgba(246,244,232,0.92) 0%, rgba(246,244,232,0.85) 18%, rgba(229,238,228,0.8) 55%, rgba(180,225,235,0.75) 100%);"
+            style="background-color: #FAF7F0;"
         ></div>
-        <!-- Dark-mode wash: dims the photo instead of brightening it -->
+        <!-- Dark-mode background -->
         <div
             class="fixed inset-0 -z-10 hidden dark:block"
-            style="background: linear-gradient(180deg, rgba(15,23,32,0.94) 0%, rgba(15,23,32,0.92) 25%, rgba(15,23,32,0.9) 60%, rgba(15,23,32,0.95) 100%);"
+            style="background-color: #0f1720;"
         ></div>
 
         <!-- Drifting sage clouds -->
@@ -30,22 +26,25 @@ const showingSidebar = ref(false);
             <div class="pcloud pcloud--c"></div>
         </div>
 
-        <div class="relative flex min-h-screen">
+        <div class="relative flex h-screen">
             <Sidebar
                 :show="showingSidebar"
                 @close="showingSidebar = false"
                 @toggle="showingSidebar = !showingSidebar"
             />
 
-            <div class="flex min-h-screen flex-1 flex-col overflow-x-hidden">
+            <div class="flex h-screen flex-1 flex-col overflow-y-auto overflow-x-hidden">
                 <!-- Page Heading -->
                 <header
                     class="sticky top-0 z-20 border-b border-black/5 backdrop-blur-xl"
                     style="background-color: rgba(255, 248, 237, 0.72); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);"
                     v-if="$slots.header"
                 >
-                    <div class="px-4 py-3 sm:px-6 lg:px-8">
-                        <slot name="header" />
+                    <div class="flex items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
+                        <div class="min-w-0 flex-1">
+                            <slot name="header" />
+                        </div>
+                        <NotificationBell />
                     </div>
                 </header>
 

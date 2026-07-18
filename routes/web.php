@@ -3,8 +3,11 @@
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinancialsController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PublicCalendarController;
 use App\Http\Controllers\ReservationController;
+use App\Http\Controllers\RotaController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -17,6 +20,10 @@ Route::get('/', function () {
         'phpVersion' => PHP_VERSION,
     ]);
 });
+
+// Public parishioner calendar — no auth. Only ever shows confirmed,
+// non-private event types (see PublicCalendarController).
+Route::get('/parish-calendar', [PublicCalendarController::class, 'index'])->name('calendar.public');
 
 Route::get('/dashboard', [DashboardController::class, 'index'])
     ->middleware(['auth', 'verified'])
@@ -37,10 +44,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::patch('reservations/{reservation}/requirements', [ReservationController::class, 'updateRequirements'])
         ->name('reservations.requirements.update');
 
+    Route::patch('reservations/{reservation}/rota', [RotaController::class, 'update'])
+        ->name('reservations.rota.update');
+
     Route::patch('reservations/{reservation}/status', [ReservationController::class, 'updateStatus'])
         ->name('reservations.status.update');
 
     Route::resource('reservations', ReservationController::class);
+
+    Route::post('notifications/{notification}/read', [NotificationController::class, 'markRead'])
+        ->name('notifications.read');
+    Route::post('notifications/read-all', [NotificationController::class, 'markAllRead'])
+        ->name('notifications.read-all');
 });
 
 Route::middleware('auth')->group(function () {

@@ -46,6 +46,30 @@ class SchedulingConflictService
     }
 
     /**
+     * Find a confirmed reservation of ANY type booked at the same
+     * location_id that would collide with the given date + time window.
+     * This is the generalized "any room, any sacrament" version of
+     * findChapelConflict — a Wedding in the Main Sanctuary now blocks a
+     * Burial from being confirmed in the Main Sanctuary at an overlapping
+     * time, not just another chapel_mass.
+     */
+    public function findLocationConflict(
+        int $locationId,
+        string $date,
+        string $time,
+        string $type,
+        ?int $excludeId = null
+    ): ?Reservation {
+        return $this->findConflict(
+            Reservation::query()->where('location_id', $locationId),
+            $date,
+            $time,
+            $type,
+            $excludeId
+        );
+    }
+
+    /**
      * Find a confirmed Chapel Mass reservation at the same chapel that
      * would collide with the given date + time window.
      */

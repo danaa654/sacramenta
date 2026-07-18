@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreReservationRequest;
 use App\Mail\ReservationConfirmed;
+use App\Models\Location;
 use App\Models\Priest;
 use App\Models\Reservation;
+use App\Services\NotificationDispatcher;
 use App\Services\SchedulingConflictService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -18,7 +20,8 @@ use Inertia\Response;
 class ReservationController extends Controller
 {
     public function __construct(
-        protected SchedulingConflictService $conflicts
+        protected SchedulingConflictService $conflicts,
+        protected NotificationDispatcher $notifier
     ) {
     }
 
@@ -53,6 +56,7 @@ class ReservationController extends Controller
     {
         return Inertia::render('Reservations/Create', [
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
+            'locations' => Location::where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'chapels' => $this->chapels,
             // Populated when arriving from the Calendar page's "click an empty day" flow.
             'date' => $request->query('date'),
@@ -69,13 +73,21 @@ class ReservationController extends Controller
 
         $this->seedRequirements($reservation);
 
+        $this->notifier->notifyAdmins(
+            kind: 'new_reservation',
+            title: 'New reservation created',
+            body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} needs review.",
+            reservation: $reservation,
+            except: $request->user()
+        );
+
         return redirect()->route('reservations.index')
             ->with('success', 'Reservation created.');
     }
 
     public function show(Reservation $reservation): Response
     {
-        $reservation->load('priest', 'requirements');
+        $reservation->load('priest', 'location', 'requirements', 'rotaAssignments');
 
         return Inertia::render('Reservations/Show', [
             'reservation' => $reservation,
@@ -87,6 +99,7 @@ class ReservationController extends Controller
         return Inertia::render('Reservations/Edit', [
             'reservation' => $reservation,
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
+            'locations' => Location::where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'chapels' => $this->chapels,
         ]);
     }
@@ -102,8 +115,15 @@ class ReservationController extends Controller
             ->with('success', 'Reservation updated.');
     }
 
-    public function destroy(Reservation $reservation): RedirectResponse
+    public function destroy(Request $request, Reservation $reservation): RedirectResponse
     {
+        $this->notifier->notifyAdmins(
+            kind: 'cancelled',
+            title: 'Reservation cancelled',
+            body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} was cancelled.",
+            except: $request->user()
+        );
+
         $reservation->delete();
 
         return redirect()->route('reservations.index')
@@ -200,14 +220,45 @@ class ReservationController extends Controller
                         ]);
                     }
                 }
+
+                if ($reservation->location_id) {
+                    $conflict = $this->conflicts->findLocationConflict(
+                        $reservation->location_id,
+                        $reservation->event_date->format('Y-m-d'),
+                        substr((string) $reservation->event_time, 0, 5),
+                        $reservation->type,
+                        $reservation->id
+                    );
+
+                    if ($conflict) {
+                        $locationName = $reservation->location?->name ?? 'This venue';
+                        $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
+
+                        return back()->withErrors([
+                            'status' => "Cannot confirm — {$locationName} was already confirmed for {$conflictTime} on the same date by another reservation.",
+                        ]);
+                    }
+                }
             }
         }
 
         $reservation->update(['status' => $validated['status']]);
 
-        if ($validated['status'] === 'confirmed' && ! $wasConfirmed && $reservation->contact_email) {
-            Mail::to($reservation->contact_email)
-                ->send(new ReservationConfirmed($reservation->loadMissing('priest')));
+        if ($validated['status'] === 'confirmed' && ! $wasConfirmed) {
+            $this->seedRota($reservation);
+
+            $this->notifier->notifyAdmins(
+                kind: 'confirmed',
+                title: 'Reservation confirmed',
+                body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} is now confirmed.",
+                reservation: $reservation,
+                except: $request->user()
+            );
+
+            if ($reservation->contact_email) {
+                Mail::to($reservation->contact_email)
+                    ->send(new ReservationConfirmed($reservation->loadMissing('priest')));
+            }
         }
 
         return back()->with('success', 'Reservation status updated.');
@@ -283,6 +334,28 @@ class ReservationController extends Controller
                 'label' => $item['label'],
                 'is_completed' => false,
             ]);
+        }
+    }
+
+    /**
+     * Build rota/volunteer slots for a reservation once it's CONFIRMED,
+     * per config/rota_roles.php. Runs only the first time a reservation
+     * transitions into 'confirmed' (guarded by $wasConfirmed in the
+     * caller), and is idempotent per role/slot thanks to the unique
+     * (reservation_id, role_key, slot_number) index — firstOrCreate skips
+     * any slot that's already there.
+     */
+    protected function seedRota(Reservation $reservation): void
+    {
+        $roles = config("rota_roles.{$reservation->type}", []);
+
+        foreach ($roles as $role) {
+            for ($slot = 1; $slot <= ($role['count'] ?? 1); $slot++) {
+                $reservation->rotaAssignments()->firstOrCreate(
+                    ['role_key' => $role['key'], 'slot_number' => $slot],
+                    ['role_label' => $role['label'], 'status' => 'needed']
+                );
+            }
         }
     }
 

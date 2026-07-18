@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Reservation;
+use App\Services\NotificationDispatcher;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -11,6 +12,11 @@ use Inertia\Response;
 
 class FinancialsController extends Controller
 {
+    public function __construct(
+        protected NotificationDispatcher $notifier
+    ) {
+    }
+
     protected array $typeLabels = [
         'wedding' => 'Wedding',
         'baptism' => 'Baptism',
@@ -89,7 +95,19 @@ class FinancialsController extends Controller
             'payment_note' => ['nullable', 'string', 'max:255'],
         ]);
 
+        $wasPaid = $reservation->payment_status === 'paid';
+
         $reservation->update($validated);
+
+        if ($validated['payment_status'] === 'paid' && ! $wasPaid) {
+            $this->notifier->notifyAdmins(
+                kind: 'payment',
+                title: 'Payment recorded',
+                body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type).' offering was marked as paid in full.',
+                reservation: $reservation,
+                except: $request->user()
+            );
+        }
 
         return back()->with('success', 'Payment record updated.');
     }

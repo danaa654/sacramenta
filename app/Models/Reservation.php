@@ -20,6 +20,7 @@ class Reservation extends Model
         'event_date',
         'event_time',
         'priest_id',
+        'location_id',
         'status',
         'details',
         'offering_amount',
@@ -43,9 +44,19 @@ class Reservation extends Model
         return $this->belongsTo(Priest::class);
     }
 
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
+    }
+
     public function requirements(): HasMany
     {
         return $this->hasMany(ReservationRequirement::class);
+    }
+
+    public function rotaAssignments(): HasMany
+    {
+        return $this->hasMany(RotaAssignment::class);
     }
 
     /**

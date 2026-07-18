@@ -8,6 +8,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    locations: {
+        type: Array,
+        default: () => [],
+    },
     chapels: {
         type: Array,
         default: () => [],
@@ -247,6 +251,7 @@ const form = useForm({
     event_date: props.reservation?.event_date?.slice(0, 10) ?? props.date ?? '',
     event_time: props.reservation?.event_time?.slice(0, 5) ?? '',
     priest_id: props.reservation?.priest_id ?? '',
+    location_id: props.reservation?.location_id ?? '',
     offering_amount: props.reservation?.offering_amount ?? '',
     details: initialDetails(),
 });
@@ -475,6 +480,16 @@ function submit() {
                         <option v-for="priest in priests" :key="priest.id" :value="priest.id">{{ priest.name }}</option>
                     </select>
                     <p v-if="form.errors.priest_id" class="field-error">{{ form.errors.priest_id }}</p>
+                </div>
+
+                <div>
+                    <label class="field-label">Venue</label>
+                    <select v-model="form.location_id" class="field-input">
+                        <option value="">Unassigned</option>
+                        <option v-for="location in locations" :key="location.id" :value="location.id">{{ location.name }}</option>
+                    </select>
+                    <p v-if="form.errors.location_id" class="field-error">{{ form.errors.location_id }}</p>
+                    <p class="mt-1.5 text-xs text-[#3f6470]/50">Used to block double-booking the same room at the same time.</p>
                 </div>
 
                 <div>

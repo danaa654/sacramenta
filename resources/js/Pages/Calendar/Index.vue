@@ -2,6 +2,9 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
+import FullCalendar from '@fullcalendar/vue3';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import interactionPlugin from '@fullcalendar/interaction';
 
 const props = defineProps({
     reservations: {
@@ -11,6 +14,14 @@ const props = defineProps({
     priests: {
         type: Array,
         default: () => [],
+    },
+    colors: {
+        type: Object,
+        default: () => ({}),
+    },
+    defaultColor: {
+        type: String,
+        default: '#7c3aed',
     },
     month: {
         type: Number,
@@ -40,132 +51,20 @@ const typeLabels = {
     others: 'Others',
 };
 
-const statusStyles = {
-    draft: 'bg-slate-100 text-[#3f6470] border-[#3f6470]/50 dark:bg-slate-700/60 dark:text-slate-200 dark:border-slate-400/50',
-    confirmed: 'bg-[#F7E9C6] text-[#7a5a1a] border-[#c9a13a] dark:bg-[#4a3a17]/80 dark:text-[#f7e9c6] dark:border-[#c9a13a]',
-    completed: 'bg-[#CFE4C7] text-[#2f5a2a] border-[#5e9a53] dark:bg-[#1e3a1e]/80 dark:text-[#cfe4c7] dark:border-[#5e9a53]',
-    archived: 'bg-slate-50 text-[#3f6470]/60 border-[#3f6470]/25 dark:bg-slate-700/30 dark:text-slate-400 dark:border-white/10',
+// Pending statuses (draft) render hollow/dashed; confirmed renders solid;
+// completed/archived render faded — same color family per type either way,
+// so staff can tell "what" at a glance and "how sure" at a second glance.
+const STATUS_OPACITY = {
+    draft: 0.55,
+    confirmed: 1,
+    completed: 0.75,
+    archived: 0.35,
 };
-
-const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MAX_BADGES_PER_DAY = 3;
 
 const selectedPriest = ref('all');
 
-const monthLabel = computed(() =>
-    new Date(props.year, props.month - 1, 1).toLocaleDateString('en-US', {
-        month: 'long',
-        year: 'numeric',
-    })
-);
-
-function pad(n) {
-    return String(n).padStart(2, '0');
-}
-
-function dateStr(y, m, d) {
-    return `${y}-${pad(m)}-${pad(d)}`;
-}
-
-function shiftMonth(year, month, delta) {
-    const d = new Date(year, month - 1 + delta, 1);
-    return { year: d.getFullYear(), month: d.getMonth() + 1 };
-}
-
-// ---- Grid construction ----
-
-const calendarDays = computed(() => {
-    const { year, month } = props;
-    const firstOfMonth = new Date(year, month - 1, 1);
-    const startWeekday = firstOfMonth.getDay(); // 0 = Sunday
-    const daysInMonth = new Date(year, month, 0).getDate();
-
-    const prev = shiftMonth(year, month, -1);
-    const daysInPrevMonth = new Date(prev.year, prev.month, 0).getDate();
-    const next = shiftMonth(year, month, 1);
-
-    const cells = [];
-
-    // Leading days from the previous month.
-    for (let i = startWeekday - 1; i >= 0; i--) {
-        const d = daysInPrevMonth - i;
-        cells.push({ day: d, inMonth: false, date: dateStr(prev.year, prev.month, d) });
-    }
-
-    // Days in the current month.
-    for (let d = 1; d <= daysInMonth; d++) {
-        cells.push({ day: d, inMonth: true, date: dateStr(year, month, d) });
-    }
-
-    // Trailing days from the next month, padded out to a full week.
-    const trailingCount = (7 - (cells.length % 7)) % 7;
-    for (let d = 1; d <= trailingCount; d++) {
-        cells.push({ day: d, inMonth: false, date: dateStr(next.year, next.month, d) });
-    }
-
-    return cells;
-});
-
-const todayStr = (() => {
-    const t = new Date();
-    return dateStr(t.getFullYear(), t.getMonth() + 1, t.getDate());
-})();
-
-// ---- Reservations grouped by date, filtered by priest ----
-
-const filteredReservations = computed(() => {
-    if (selectedPriest.value === 'all') return props.reservations;
-    return props.reservations.filter((r) => String(r.priest_id ?? '') === String(selectedPriest.value));
-});
-
-const reservationsByDate = computed(() => {
-    const map = {};
-    for (const r of filteredReservations.value) {
-        const key = r.event_date.slice(0, 10);
-        (map[key] ??= []).push(r);
-    }
-    return map;
-});
-
-function reservationsFor(date) {
-    return reservationsByDate.value[date] ?? [];
-}
-
-// ---- Navigation ----
-
-function goToMonth(year, month) {
-    router.get(
-        route('calendar.index'),
-        { year, month },
-        { only: ['reservations', 'month', 'year'], preserveState: true, preserveScroll: true }
-    );
-}
-
-function goPrevMonth() {
-    const { year, month } = shiftMonth(props.year, props.month, -1);
-    goToMonth(year, month);
-}
-
-function goNextMonth() {
-    const { year, month } = shiftMonth(props.year, props.month, 1);
-    goToMonth(year, month);
-}
-
-function goToday() {
-    const t = new Date();
-    goToMonth(t.getFullYear(), t.getMonth() + 1);
-}
-
-function onDayCellClick(cell) {
-    if (!cell.inMonth) {
-        // Adjacent-month day: jump the calendar to that month instead of
-        // creating a reservation on a date that isn't currently in view.
-        const [y, m] = cell.date.split('-').map(Number);
-        goToMonth(y, m);
-        return;
-    }
-
-    router.get(route('reservations.create', { date: cell.date }));
+function colorFor(type) {
+    return props.colors[type] ?? props.defaultColor;
 }
 
 function formatTime(time) {
@@ -175,6 +74,91 @@ function formatTime(time) {
     const suffix = Number(h) >= 12 ? 'PM' : 'AM';
     return `${hour12}:${m}${suffix.toLowerCase()}`;
 }
+
+const filteredReservations = computed(() => {
+    if (selectedPriest.value === 'all') return props.reservations;
+    return props.reservations.filter((r) => String(r.priest_id ?? '') === String(selectedPriest.value));
+});
+
+// ---- FullCalendar event mapping ----
+
+const calendarEvents = computed(() =>
+    filteredReservations.value.map((r) => {
+        const color = colorFor(r.type);
+        const label = typeLabels[r.type] ?? r.type;
+
+        return {
+            id: String(r.id),
+            title: `${label}${r.contact_name ? ' — ' + r.contact_name : ''}`,
+            start: r.event_time ? `${r.event_date.slice(0, 10)}T${r.event_time}` : r.event_date.slice(0, 10),
+            allDay: !r.event_time,
+            backgroundColor: color,
+            borderColor: color,
+            textColor: '#ffffff',
+            extendedProps: {
+                status: r.status,
+                type: r.type,
+                reservationId: r.id,
+                priestName: r.priest?.name,
+                locationName: r.location?.name,
+                time: formatTime(r.event_time),
+            },
+        };
+    })
+);
+
+function eventDidMount(info) {
+    const status = info.event.extendedProps.status;
+    info.el.style.opacity = String(STATUS_OPACITY[status] ?? 1);
+    if (status === 'draft') {
+        info.el.style.borderStyle = 'dashed';
+    }
+
+    const parts = [
+        typeLabels[info.event.extendedProps.type] ?? info.event.extendedProps.type,
+        info.event.extendedProps.priestName ? `Fr. ${info.event.extendedProps.priestName}` : null,
+        info.event.extendedProps.locationName,
+        info.event.extendedProps.time,
+        `Status: ${info.event.extendedProps.status}`,
+    ].filter(Boolean);
+
+    info.el.title = parts.join(' · ');
+}
+
+function onEventClick(info) {
+    router.get(route('reservations.show', info.event.extendedProps.reservationId));
+}
+
+function onDateClick(info) {
+    router.get(route('reservations.create', { date: info.dateStr }));
+}
+
+function onDatesSet(info) {
+    const year = info.view.currentStart.getFullYear();
+    const month = info.view.currentStart.getMonth() + 1;
+
+    if (year === props.year && month === props.month) return;
+
+    router.get(
+        route('calendar.index'),
+        { year, month },
+        { only: ['reservations', 'month', 'year'], preserveState: true, preserveScroll: true, replace: true }
+    );
+}
+
+const calendarOptions = computed(() => ({
+    plugins: [dayGridPlugin, interactionPlugin],
+    initialView: 'dayGridMonth',
+    initialDate: new Date(props.year, props.month - 1, 1),
+    headerToolbar: { left: 'prev,next today', center: 'title', right: '' },
+    height: 'auto',
+    dayMaxEvents: 3,
+    events: calendarEvents.value,
+    eventClick: onEventClick,
+    dateClick: onDateClick,
+    datesSet: onDatesSet,
+    eventDidMount,
+}));
 </script>
 
 <template>
@@ -204,6 +188,14 @@ function formatTime(time) {
                     </select>
 
                     <Link
+                        :href="route('calendar.public')"
+                        target="_blank"
+                        class="rounded-full border border-[#173528]/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#173528] transition hover:bg-[#173528]/5"
+                    >
+                        View Public Calendar
+                    </Link>
+
+                    <Link
                         :href="route('reservations.create')"
                         class="rounded-full bg-[#8CA089] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-sm shadow-[#8CA089]/30 transition hover:-translate-y-0.5 hover:bg-[#7c9078] hover:shadow-md"
                     >
@@ -216,128 +208,72 @@ function formatTime(time) {
         <div class="py-10">
             <div class="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
 
-                <!-- Month navigation -->
-                <div class="flex items-center justify-between rounded-2xl border border-white/80 bg-white/90 p-4 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
-                    <div class="flex items-center gap-2">
-                        <button
-                            type="button"
-                            @click="goPrevMonth"
-                            class="rounded-full p-2 text-[#3f6470]/60 transition hover:bg-[#E4EDE1]/60 hover:text-[#3f6470] dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white"
-                            aria-label="Previous month"
-                        >
-                            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M15 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </button>
-                        <button
-                            type="button"
-                            @click="goNextMonth"
-                            class="rounded-full p-2 text-[#3f6470]/60 transition hover:bg-[#E4EDE1]/60 hover:text-[#3f6470] dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white"
-                            aria-label="Next month"
-                        >
-                            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </button>
-                    </div>
-
-                    <h3 class="font-serif text-2xl font-medium text-[#3f6470] dark:text-white">
-                        {{ monthLabel }}
-                    </h3>
-
-                    <button
-                        type="button"
-                        @click="goToday"
-                        class="rounded-full border border-[#3f6470]/20 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
-                    >
-                        Today
-                    </button>
-                </div>
-
-                <!-- Month grid -->
-                <div class="overflow-hidden rounded-2xl border border-white/80 bg-white/90 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
-                    <div class="grid grid-cols-7 border-b border-[#3f6470]/10 dark:border-white/10">
-                        <div
-                            v-for="wd in weekdayLabels"
-                            :key="wd"
-                            class="px-2 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-[#3f6470]/50 dark:text-slate-400"
-                        >
-                            {{ wd }}
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-7 auto-rows-fr" style="height: calc(100vh - 300px); min-height: 480px;">
-                        <div
-                            v-for="cell in calendarDays"
-                            :key="cell.date"
-                            @click="onDayCellClick(cell)"
-                            class="group relative cursor-pointer overflow-hidden border-b border-r border-[#3f6470]/10 p-1.5 transition hover:bg-[#E4EDE1]/40 dark:border-white/10 dark:hover:bg-white/5 sm:p-2"
-                            :class="!cell.inMonth && 'bg-[#f6f4e8]/40 dark:bg-slate-900/40'"
-                        >
-                            <div class="flex items-center justify-between">
-                                <span
-                                    class="text-xs font-semibold"
-                                    :class="[
-                                        cell.inMonth
-                                            ? 'text-[#2f4a4a] dark:text-slate-100'
-                                            : 'text-[#3f6470]/30 dark:text-slate-600',
-                                        cell.date === todayStr && 'flex h-5 w-5 items-center justify-center rounded-full bg-[#8CA089] text-white',
-                                    ]"
-                                >
-                                    {{ cell.day }}
-                                </span>
-                                <span
-                                    v-if="cell.inMonth"
-                                    class="hidden h-5 w-5 items-center justify-center rounded-full bg-[#8CA089]/15 text-[#8CA089] opacity-0 transition group-hover:opacity-100 sm:flex"
-                                    title="Add reservation"
-                                >
-                                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                                        <path d="M12 5v14M5 12h14" stroke-linecap="round" />
-                                    </svg>
-                                </span>
-                            </div>
-
-                            <div class="mt-1 space-y-1 overflow-hidden">
-                                <Link
-                                    v-for="res in reservationsFor(cell.date).slice(0, MAX_BADGES_PER_DAY)"
-                                    :key="res.id"
-                                    :href="route('reservations.show', res.id)"
-                                    @click.stop
-                                    class="block truncate rounded-md border-l-4 px-2 py-1 text-[11px] font-semibold leading-tight shadow-sm transition hover:-translate-y-px hover:shadow"
-                                    :class="statusStyles[res.status] ?? statusStyles.draft"
-                                    :title="`${typeLabels[res.type] ?? res.type} — ${res.contact_name}${res.event_time ? ' · ' + formatTime(res.event_time) : ''}`"
-                                >
-                                    {{ typeLabels[res.type] ?? res.type }}
-                                </Link>
-
-                                <p
-                                    v-if="reservationsFor(cell.date).length > MAX_BADGES_PER_DAY"
-                                    class="px-2 text-[11px] font-semibold text-[#3f6470]/60 dark:text-slate-400"
-                                >
-                                    +{{ reservationsFor(cell.date).length - MAX_BADGES_PER_DAY }} more
-                                </p>
-                            </div>
-                        </div>
-                    </div>
+                <!-- FullCalendar month grid, color-coded by sacrament type -->
+                <div class="sacramenta-calendar overflow-hidden rounded-2xl border border-white/80 bg-white/90 p-4 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
+                    <FullCalendar :options="calendarOptions" />
                 </div>
 
                 <!-- Legend -->
-                <div class="flex flex-wrap items-center gap-4 px-1 text-xs text-[#3f6470]/60 dark:text-slate-400">
-                    <span class="flex items-center gap-1.5">
-                        <span class="h-2.5 w-2.5 rounded-full border" :class="statusStyles.draft"></span> Draft
-                    </span>
-                    <span class="flex items-center gap-1.5">
-                        <span class="h-2.5 w-2.5 rounded-full border" :class="statusStyles.confirmed"></span> Confirmed
-                    </span>
-                    <span class="flex items-center gap-1.5">
-                        <span class="h-2.5 w-2.5 rounded-full border" :class="statusStyles.completed"></span> Completed
-                    </span>
-                    <span class="flex items-center gap-1.5">
-                        <span class="h-2.5 w-2.5 rounded-full border" :class="statusStyles.archived"></span> Archived
-                    </span>
+                <div class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-xs text-[#3f6470]/70 shadow-sm backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-300">
+                    <div class="flex flex-wrap items-center gap-4">
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full" style="background:#d97706"></span> Wedding</span>
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full" style="background:#2563eb"></span> Baptism</span>
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full" style="background:#4b5563"></span> Burial</span>
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full" style="background:#16a34a"></span> Masses</span>
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full" style="background:#7c3aed"></span> Others</span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-4">
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full border-2 border-dashed border-current opacity-60"></span> Pending</span>
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-current"></span> Confirmed</span>
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-current opacity-75"></span> Completed</span>
+                        <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-current opacity-35"></span> Archived</span>
+                    </div>
                 </div>
 
             </div>
         </div>
     </AuthenticatedLayout>
 </template>
+
+<style>
+/* FullCalendar ships unstyled by default in v6; these light touches match
+   the app's existing rounded/soft look without fighting Tailwind resets. */
+.sacramenta-calendar .fc {
+    --fc-border-color: rgba(63, 100, 112, 0.12);
+    --fc-today-bg-color: rgba(140, 160, 137, 0.12);
+    font-family: inherit;
+}
+.sacramenta-calendar .fc .fc-toolbar-title {
+    font-family: 'Playfair Display', ui-serif, Georgia, serif;
+    font-size: 1.375rem;
+    color: #3f6470;
+}
+.sacramenta-calendar .fc .fc-button {
+    background: transparent;
+    border: 1px solid rgba(63, 100, 112, 0.2);
+    color: #3f6470;
+    text-transform: capitalize;
+    box-shadow: none;
+}
+.sacramenta-calendar .fc .fc-button:hover {
+    background: rgba(228, 237, 225, 0.6);
+}
+.sacramenta-calendar .fc .fc-button-primary:not(:disabled).fc-button-active {
+    background: #8CA089;
+    border-color: #8CA089;
+    color: #fff;
+}
+.sacramenta-calendar .fc .fc-daygrid-day-number,
+.sacramenta-calendar .fc .fc-col-header-cell-cushion {
+    color: #2f4a4a;
+}
+.sacramenta-calendar .fc-event {
+    border-radius: 6px;
+    padding: 1px 4px;
+    cursor: pointer;
+}
+.sacramenta-calendar .fc-daygrid-day:hover {
+    background: rgba(228, 237, 225, 0.35);
+    cursor: pointer;
+}
+</style>

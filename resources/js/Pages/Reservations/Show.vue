@@ -113,6 +113,33 @@ function saveChecklist() {
     });
 }
 
+// ---- Rota / volunteer scheduling ----
+
+const rotaForm = useForm({
+    items: (props.reservation.rotaAssignments ?? []).map((a) => ({
+        id: a.id,
+        volunteer_name: a.volunteer_name ?? '',
+        status: a.status,
+        note: a.note ?? '',
+    })),
+});
+
+const rotaStatusStyles = {
+    needed: 'bg-white text-[#3f6470]/70 border-[#3f6470]/20',
+    requested: 'bg-[#F7E9C6] text-[#7a5a1a] border-[#c9a13a]',
+    confirmed: 'bg-[#CFE4C7] text-[#2f5a2a] border-[#5e9a53]',
+};
+
+function rotaRoleLabel(id) {
+    return props.reservation.rotaAssignments.find((a) => a.id === id)?.role_label ?? '';
+}
+
+function saveRota() {
+    rotaForm.patch(route('reservations.rota.update', props.reservation.id), {
+        preserveScroll: true,
+    });
+}
+
 // ---- Status transition ----
 
 const statusForm = useForm({ status: 'confirmed' });
@@ -208,6 +235,10 @@ const confirmTooltip = computed(() => {
                             <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.priest?.name ?? 'Unassigned' }}</dd>
                         </div>
                         <div>
+                            <dt class="field-label">Venue</dt>
+                            <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.location?.name ?? 'Unassigned' }}</dd>
+                        </div>
+                        <div>
                             <dt class="field-label">Offering Amount</dt>
                             <dd class="mt-1 text-sm text-[#2f4a4a]">
                                 {{ reservation.offering_amount ? `₱${Number(reservation.offering_amount).toLocaleString()}` : '—' }}
@@ -299,6 +330,61 @@ const confirmTooltip = computed(() => {
                             class="rounded-full border border-[#3f6470]/20 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             Save Checklist
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Rota / volunteer scheduling — appears once seeded at confirmation -->
+                <div
+                    v-if="reservation.rotaAssignments && reservation.rotaAssignments.length"
+                    class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm"
+                >
+                    <h3 class="font-serif text-xl font-medium text-[#3f6470]">Rota / Volunteer Team</h3>
+                    <p class="mt-1 text-sm text-[#3f6470]/60">
+                        Ministry roles requested for this {{ (typeLabels[reservation.type] ?? reservation.type).toLowerCase() }}.
+                    </p>
+
+                    <div class="mt-5 space-y-4">
+                        <div
+                            v-for="item in rotaForm.items"
+                            :key="item.id"
+                            class="rounded-xl border border-[#3f6470]/10 bg-white/70 p-4"
+                        >
+                            <div class="flex flex-wrap items-center justify-between gap-3">
+                                <span class="text-sm font-medium text-[#2f4a4a]">{{ rotaRoleLabel(item.id) }}</span>
+                                <select
+                                    v-model="item.status"
+                                    class="field-input w-auto rounded-full border px-3 py-1 text-xs font-medium capitalize"
+                                    :class="rotaStatusStyles[item.status] ?? rotaStatusStyles.needed"
+                                >
+                                    <option value="needed">Needed</option>
+                                    <option value="requested">Requested</option>
+                                    <option value="confirmed">Confirmed</option>
+                                </select>
+                            </div>
+                            <input
+                                v-model="item.volunteer_name"
+                                type="text"
+                                placeholder="Volunteer name"
+                                class="field-input mt-3 text-sm"
+                            />
+                            <input
+                                v-model="item.note"
+                                type="text"
+                                placeholder="Optional note"
+                                class="field-input mt-2 text-xs"
+                            />
+                        </div>
+                    </div>
+
+                    <div class="mt-5 flex items-center justify-end gap-3">
+                        <button
+                            type="button"
+                            @click="saveRota"
+                            :disabled="rotaForm.processing"
+                            class="rounded-full border border-[#3f6470]/20 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            Save Rota
                         </button>
                     </div>
                 </div>
