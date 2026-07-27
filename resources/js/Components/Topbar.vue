@@ -1,61 +1,50 @@
 <script setup>
-import Dropdown from '@/Components/Dropdown.vue';
-import DropdownLink from '@/Components/DropdownLink.vue';
-import { Link } from '@inertiajs/vue3';
+import { computed } from 'vue';
+import { usePage } from '@inertiajs/vue3';
+import NotificationBell from '@/Components/NotificationBell.vue';
 
-defineEmits(['toggle-sidebar']);
+defineProps({
+    title: { type: String, default: '' },
+});
+
+const page = usePage();
+const adminName = computed(() => page.props.auth?.user?.name?.split(' ')[0] ?? 'Admin');
+
+const today = computed(() =>
+    new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+);
 </script>
 
 <template>
-    <header class="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-white/40 bg-white/50 px-4 backdrop-blur-md sm:px-6 lg:px-8">
-        <!-- Mobile: hamburger -->
-        <button
-            type="button"
-            class="inline-flex items-center justify-center rounded-md p-2 text-[#3f6470] hover:bg-[#E4EDE1]/60 lg:hidden"
-            @click="$emit('toggle-sidebar')"
-        >
-            <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-        </button>
+    <div
+        class="sticky top-4 z-20 mx-4 flex items-center gap-3 rounded-full border border-[#173528]/10 bg-[#FFFBF2]/95 px-4 py-3 shadow-md backdrop-blur-xl sm:mx-6 sm:px-6 lg:mx-8 dark:border-white/10 dark:bg-slate-800/95"
+    >
+        <img src="/logo.png" alt="Sacramenta" class="h-9 w-9 shrink-0 object-contain" />
+        <span class="truncate font-serif text-xl font-medium text-[#173528] dark:text-white">Sacramenta</span>
 
-        <div class="hidden lg:block"></div>
+        <template v-if="title">
+            <span class="hidden h-6 w-px bg-[#173528]/10 sm:block dark:bg-white/10"></span>
+            <span class="hidden truncate text-sm font-semibold uppercase tracking-[0.15em] text-[#4f7a4a] sm:block dark:text-[#8CA089]">
+                {{ title }}
+            </span>
+        </template>
 
-        <div class="flex items-center gap-4">
-            <Dropdown align="right" width="48">
-                <template #trigger>
-                    <span class="inline-flex rounded-full">
-                        <button
-                            type="button"
-                            class="inline-flex items-center rounded-full border border-transparent bg-white/70 px-4 py-2 text-sm font-medium leading-4 text-[#3f6470] shadow-sm ring-1 ring-white/60 transition duration-200 ease-in-out hover:bg-[#E4EDE1]/80 hover:text-[#3f6470] hover:shadow-md focus:outline-none"
-                        >
-                            {{ $page.props.auth.user.name }}
+        <div class="ml-auto flex items-center gap-3 sm:gap-4">
+            <div class="hidden items-center gap-2 rounded-full border border-[#173528]/15 px-4 py-2 text-sm text-[#173528]/80 sm:flex dark:border-white/15 dark:text-slate-200">
+                <svg class="h-4 w-4 text-[#4f7a4a]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M15.5 12.5a3.5 3.5 0 1 1-3.5-3.5" stroke-linecap="round"/></svg>
+                <span>Hi <span class="font-semibold text-[#173528] dark:text-white">{{ adminName }}</span></span>
+            </div>
 
-                            <svg
-                                class="-me-0.5 ms-2 h-4 w-4"
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
-                            >
-                                <path
-                                    fill-rule="evenodd"
-                                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                                    clip-rule="evenodd"
-                                />
-                            </svg>
-                        </button>
-                    </span>
-                </template>
+            <span class="hidden h-6 w-px bg-[#173528]/10 sm:block dark:bg-white/10"></span>
 
-                <template #content>
-                    <DropdownLink :href="route('profile.edit')">
-                        Profile
-                    </DropdownLink>
-                    <DropdownLink :href="route('logout')" method="post" as="button">
-                        Log Out
-                    </DropdownLink>
-                </template>
-            </Dropdown>
+            <div class="hidden items-center gap-2 rounded-full border border-[#173528]/15 px-4 py-2 text-sm text-[#173528]/80 md:flex dark:border-white/15 dark:text-slate-200">
+                <svg class="h-4 w-4 text-[#4f7a4a]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18" stroke-linecap="round"/></svg>
+                <span>{{ today }}</span>
+            </div>
+
+            <span class="hidden h-6 w-px bg-[#173528]/10 md:block dark:bg-white/10"></span>
+
+            <NotificationBell />
         </div>
-    </header>
+    </div>
 </template>

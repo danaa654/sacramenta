@@ -102,6 +102,10 @@ return [
      */
     'durations' => [
         'default' => 30,
+        // Regular auto-generated parish Mass slot (see MassSchedule /
+        // GenerateMassSchedule) — matches the 1-hour back-to-back slots
+        // in all three weekly templates.
+        'mass' => 60,
         'burial' => 90,
         'baptism' => 60,
         'wedding' => 90,

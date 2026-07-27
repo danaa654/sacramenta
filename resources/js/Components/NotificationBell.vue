@@ -56,7 +56,7 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
         <button
             type="button"
             @click="open = !open"
-            class="relative flex h-10 w-10 items-center justify-center rounded-full text-[#173528]/60 transition hover:bg-[#173528]/5 hover:text-[#173528] dark:text-slate-300 dark:hover:bg-white/10"
+            class="relative flex h-10 w-10 items-center justify-center rounded-full text-[#3f6470]/70 transition hover:bg-[#173528]/5 hover:text-[#173528]"
             title="Notifications"
         >
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">

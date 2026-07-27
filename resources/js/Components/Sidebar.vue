@@ -1,8 +1,9 @@
 <script setup>
+import { ref, onMounted, computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import ThemeToggle from '@/Components/ThemeToggle.vue';
 
-defineProps({
+const props = defineProps({
     show: {
         type: Boolean,
         default: false,
@@ -11,12 +12,17 @@ defineProps({
 
 defineEmits(['close', 'toggle']);
 
+// The sidebar is now always fully expanded on desktop — no more
+// hover-to-expand/collapse or pin/unpin behavior.
+const expanded = computed(() => true);
+
 const navItems = [
     { label: 'Dashboard', icon: 'grid', route: 'dashboard', enabled: true },
     { label: 'Reservations', icon: 'calendar', route: 'reservations.index', enabled: true },
     { label: 'Calendar', icon: 'calendar-view', route: 'calendar.index', enabled: true },
+    { label: 'Unassigned Masses', icon: 'calendar-view', route: 'masses.unassigned', enabled: true },
     { label: 'Financials', icon: 'coin', route: 'financials.index', enabled: true },
-    { label: 'Archives', icon: 'archive', route: null, enabled: false },
+    { label: 'Archives', icon: 'archive', route: 'archives.index', enabled: true },
 ];
 
 function initials(name) {
@@ -28,6 +34,43 @@ function initials(name) {
         .map((n) => n[0].toUpperCase())
         .join('');
 }
+
+// "Verse of the day": today's month picks a book, and the month/day become
+// the chapter:verse — e.g. 7/23 -> Matthew 7:23. This is just a fun,
+// memorable pairing (not a liturgical reading), so the book-per-month list
+// below is an arbitrary but fixed mapping.
+const monthBook = [
+    'Genesis', 'Exodus', 'Numbers', 'Deuteronomy', 'Psalms', 'Proverbs',
+    'Matthew', 'Mark', 'Luke', 'John', 'Acts', 'Revelation',
+];
+
+const verseRef = ref('');
+const verseText = ref('');
+const verseLoading = ref(true);
+const verseError = ref(false);
+
+onMounted(async () => {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const day = now.getDate();
+    const book = monthBook[month - 1];
+    const reference = `${book} ${month}:${day}`;
+    verseRef.value = reference;
+
+    try {
+        const res = await fetch(`https://bible-api.com/${encodeURIComponent(reference)}`);
+        if (!res.ok) throw new Error('not found');
+        const data = await res.json();
+        if (!data.text) throw new Error('no text');
+        verseText.value = data.text.trim();
+    } catch (e) {
+        // That chapter/verse doesn't exist in this book (e.g. it runs out
+        // of verses/chapters) — fail quietly rather than show a broken card.
+        verseError.value = true;
+    } finally {
+        verseLoading.value = false;
+    }
+});
 </script>
 
 <template>
@@ -58,20 +101,19 @@ function initials(name) {
         stretching across it.
     -->
     <aside
-        class="group fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 -translate-x-full flex-col overflow-hidden border-r border-black/10 transition-all duration-200 ease-out lg:static lg:inset-auto lg:z-auto lg:w-20 lg:translate-x-0 lg:hover:w-64 lg:hover:shadow-xl"
+        class="group fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 -translate-x-full flex-col overflow-hidden border-r border-black/10 transition-transform duration-200 ease-out lg:static lg:inset-auto lg:z-auto lg:translate-x-0"
         style="background-color: #0f2818;"
-        :class="{ 'w-64 translate-x-0': show }"
+        :class="{ 'translate-x-0': show }"
     >
         <div class="flex items-center px-4 py-5">
-            <Link :href="route('dashboard')" class="flex shrink-0 items-center">
-                <img src="/logo.png" alt="Sacramenta" class="h-10 w-10 object-contain" />
-            </Link>
-            <span
-                class="ml-3 whitespace-nowrap font-serif text-lg font-medium text-white/90 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                :class="{ 'opacity-100': show }"
-            >
-                Sacramenta
-            </span>
+            <div class="flex min-w-0 items-center">
+                <Link :href="route('dashboard')" class="flex shrink-0 items-center">
+                    <img src="/logo.png" alt="Sacramenta" class="h-10 w-10 object-contain" />
+                </Link>
+                <span class="ml-3 whitespace-nowrap font-serif text-lg font-medium text-white/90">
+                    Sacramenta
+                </span>
+            </div>
         </div>
 
         <nav class="flex-1 space-y-1 px-3">
@@ -114,25 +156,37 @@ function initials(name) {
                     <path d="M10 13h4" stroke-linecap="round" />
                 </svg>
 
-                <span
-                    class="whitespace-nowrap opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                    :class="{ 'opacity-100': show }"
-                >
+                <span class="whitespace-nowrap">
                     {{ item.label }}
                 </span>
                 <span
                     v-if="!item.enabled"
-                    class="ml-auto shrink-0 whitespace-nowrap rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/40 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                    :class="{ 'opacity-100': show }"
+                    class="ml-auto shrink-0 whitespace-nowrap rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/40"
                 >
                     Soon
                 </span>
             </component>
         </nav>
 
+        <!-- Verse of the day -->
+        <div
+            v-if="expanded && !verseError"
+            class="mx-3 mb-3 rounded-xl border border-white/10 bg-white/5 px-3.5 py-3"
+        >
+            <p class="text-[10px] font-semibold uppercase tracking-wide text-white/40">
+                {{ verseRef }}
+            </p>
+            <p v-if="verseLoading" class="mt-1 text-xs italic text-white/40">
+                Loading verse…
+            </p>
+            <p v-else class="mt-1 text-xs italic leading-relaxed text-white/70">
+                “{{ verseText }}”
+            </p>
+        </div>
+
         <!-- Appearance toggle -->
         <div class="border-t border-white/10 px-3 py-3">
-            <ThemeToggle :expanded="show" />
+            <ThemeToggle :expanded="expanded" />
         </div>
 
         <!-- Signed-in user -->
@@ -145,10 +199,7 @@ function initials(name) {
                     <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#8CA089]/30 text-xs font-semibold text-white">
                         {{ initials($page.props.auth.user.name) }}
                     </span>
-                    <span
-                        class="min-w-0 flex-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                        :class="{ 'opacity-100': show }"
-                    >
+                    <span class="min-w-0 flex-1">
                         <span class="block truncate text-sm font-medium text-white">
                             {{ $page.props.auth.user.name }}
                         </span>
@@ -162,8 +213,7 @@ function initials(name) {
                     method="post"
                     as="button"
                     title="Log out"
-                    class="mr-2 shrink-0 rounded-lg p-2 text-white/40 opacity-0 transition-all duration-150 hover:bg-white/10 hover:text-red-400 group-hover:opacity-100"
-                    :class="{ 'opacity-100': show }"
+                    class="mr-2 shrink-0 rounded-lg p-2 text-white/40 transition-colors hover:bg-white/10 hover:text-red-400"
                 >
                     <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                         <path d="M15.5 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2h7.5a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round" />

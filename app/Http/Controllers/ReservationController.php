@@ -39,9 +39,18 @@ class ReservationController extends Controller
 
     public function index(Request $request): Response
     {
+        $showRegularMasses = $request->boolean('show_regular_masses');
+
         $reservations = Reservation::with('priest')
             ->when($request->string('type')->toString(), fn ($q, $type) => $q->where('type', $type))
             ->when($request->string('status')->toString(), fn ($q, $status) => $q->where('status', $status))
+            // Auto-generated regular Masses (from the weekly MassSchedule
+            // templates, see GenerateMassSchedule) are staff's standing
+            // schedule, not requests needing review — they have their own
+            // dedicated "unassigned Masses" view. Hidden here by default so
+            // they don't drown out actual staff-entered bookings; opt back
+            // in with ?show_regular_masses=1.
+            ->when(! $showRegularMasses, fn ($q) => $q->whereNull('mass_schedule_id'))
             ->orderByDesc('event_date')
             ->paginate(15)
             ->withQueryString();
@@ -49,6 +58,7 @@ class ReservationController extends Controller
         return Inertia::render('Reservations/Index', [
             'reservations' => $reservations,
             'filters' => $request->only(['type', 'status']),
+            'showRegularMasses' => $showRegularMasses,
         ]);
     }
 
@@ -91,6 +101,7 @@ class ReservationController extends Controller
 
         return Inertia::render('Reservations/Show', [
             'reservation' => $reservation,
+            'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
         ]);
     }
 
@@ -169,99 +180,167 @@ class ReservationController extends Controller
             'status' => ['required', Rule::in(['draft', 'confirmed', 'completed', 'archived'])],
         ]);
 
-        $wasConfirmed = $reservation->status === 'confirmed';
+        $blocker = $this->confirmationBlocker($reservation, $validated['status']);
 
-        if ($validated['status'] === 'confirmed' && $reservation->status !== 'confirmed') {
-            $reservation->loadMissing('requirements');
-            $missing = $reservation->incompleteRequirementLabels();
-
-            if (! empty($missing)) {
-                return back()->withErrors([
-                    'status' => 'Cannot confirm this reservation — still missing: '.implode(', ', $missing).'.',
-                ]);
-            }
-
-            if ($reservation->event_time) {
-                if ($reservation->priest_id) {
-                    $conflict = $this->conflicts->findPriestConflict(
-                        $reservation->priest_id,
-                        $reservation->event_date->format('Y-m-d'),
-                        substr((string) $reservation->event_time, 0, 5),
-                        $reservation->type,
-                        $reservation->id
-                    );
-
-                    if ($conflict) {
-                        $priestName = $reservation->priest?->name ?? 'This priest';
-                        $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
-
-                        return back()->withErrors([
-                            'status' => "Cannot confirm — {$priestName} was already confirmed for {$conflictTime} on the same date by another reservation.",
-                        ]);
-                    }
-                }
-
-                $chapel = $reservation->details['chapel'] ?? null;
-
-                if ($reservation->type === 'chapel_mass' && $chapel) {
-                    $conflict = $this->conflicts->findChapelConflict(
-                        $chapel,
-                        $reservation->event_date->format('Y-m-d'),
-                        substr((string) $reservation->event_time, 0, 5),
-                        $reservation->type,
-                        $reservation->id
-                    );
-
-                    if ($conflict) {
-                        $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
-
-                        return back()->withErrors([
-                            'status' => "Cannot confirm — {$chapel} was already confirmed for {$conflictTime} on the same date by another reservation.",
-                        ]);
-                    }
-                }
-
-                if ($reservation->location_id) {
-                    $conflict = $this->conflicts->findLocationConflict(
-                        $reservation->location_id,
-                        $reservation->event_date->format('Y-m-d'),
-                        substr((string) $reservation->event_time, 0, 5),
-                        $reservation->type,
-                        $reservation->id
-                    );
-
-                    if ($conflict) {
-                        $locationName = $reservation->location?->name ?? 'This venue';
-                        $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
-
-                        return back()->withErrors([
-                            'status' => "Cannot confirm — {$locationName} was already confirmed for {$conflictTime} on the same date by another reservation.",
-                        ]);
-                    }
-                }
-            }
+        if ($blocker) {
+            return back()->withErrors(['status' => $blocker]);
         }
+
+        $wasConfirmed = $reservation->status === 'confirmed';
 
         $reservation->update(['status' => $validated['status']]);
 
         if ($validated['status'] === 'confirmed' && ! $wasConfirmed) {
-            $this->seedRota($reservation);
-
-            $this->notifier->notifyAdmins(
-                kind: 'confirmed',
-                title: 'Reservation confirmed',
-                body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} is now confirmed.",
-                reservation: $reservation,
-                except: $request->user()
-            );
-
-            if ($reservation->contact_email) {
-                Mail::to($reservation->contact_email)
-                    ->send(new ReservationConfirmed($reservation->loadMissing('priest')));
-            }
+            $this->handleNewlyConfirmed($reservation, $request);
         }
 
         return back()->with('success', 'Reservation status updated.');
+    }
+
+    /**
+     * Backs the "Reservation Actions" card on the Show page: lets the admin
+     * reassign the priest, change status, and change payment status all in
+     * one save, from a single sidebar form. Runs the same confirm-time
+     * validation (requirements checklist + priest/chapel/venue conflicts)
+     * as updateStatus() whenever the status is moving into 'confirmed'.
+     */
+    public function updateActions(Request $request, Reservation $reservation): RedirectResponse
+    {
+        $validated = $request->validate([
+            'priest_id' => ['nullable', Rule::exists('priests', 'id')],
+            'status' => ['required', Rule::in(['draft', 'confirmed', 'completed', 'archived'])],
+            'payment_status' => ['required', Rule::in(['unpaid', 'partial', 'paid', 'waived'])],
+        ]);
+
+        // Apply the priest reassignment before running confirm-time conflict
+        // checks, so "assign priest + confirm" in one click is checked
+        // against the priest that's about to be saved, not the old one.
+        $reservation->priest_id = $validated['priest_id'] ?? null;
+
+        $blocker = $this->confirmationBlocker($reservation, $validated['status']);
+
+        if ($blocker) {
+            return back()->withErrors(['status' => $blocker]);
+        }
+
+        $wasConfirmed = $reservation->getOriginal('status') === 'confirmed';
+
+        $reservation->status = $validated['status'];
+        $reservation->payment_status = $validated['payment_status'];
+        $reservation->save();
+
+        if ($validated['status'] === 'confirmed' && ! $wasConfirmed) {
+            $this->handleNewlyConfirmed($reservation, $request);
+        }
+
+        return back()->with('success', 'Reservation updated.');
+    }
+
+    /**
+     * Draft -> Confirmed is blocked unless every checklist item for the
+     * reservation's type has been checked off, AND its date/time doesn't
+     * collide with something else that's already confirmed — a draft may
+     * have sat around while another reservation for the same priest, chapel
+     * slot, or venue got confirmed in the meantime. Returns an error message
+     * to show the admin, or null when the transition is allowed (including
+     * when $newStatus isn't 'confirmed', or the reservation is already
+     * confirmed).
+     */
+    protected function confirmationBlocker(Reservation $reservation, string $newStatus): ?string
+    {
+        if ($newStatus !== 'confirmed' || $reservation->status === 'confirmed') {
+            return null;
+        }
+
+        $reservation->loadMissing('requirements');
+        $missing = $reservation->incompleteRequirementLabels();
+
+        if (! empty($missing)) {
+            return 'Cannot confirm this reservation — still missing: '.implode(', ', $missing).'.';
+        }
+
+        if (! $reservation->event_time) {
+            return null;
+        }
+
+        if ($reservation->priest_id) {
+            $conflict = $this->conflicts->findPriestConflict(
+                $reservation->priest_id,
+                $reservation->event_date->format('Y-m-d'),
+                substr((string) $reservation->event_time, 0, 5),
+                $reservation->type,
+                $reservation->id
+            );
+
+            if ($conflict) {
+                $priestName = $reservation->priest?->name ?? 'This priest';
+                $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
+
+                return "Cannot confirm — {$priestName} was already confirmed for {$conflictTime} on the same date by another reservation.";
+            }
+        }
+
+        $chapel = $reservation->details['chapel'] ?? null;
+
+        if ($reservation->type === 'chapel_mass' && $chapel) {
+            $conflict = $this->conflicts->findChapelConflict(
+                $chapel,
+                $reservation->event_date->format('Y-m-d'),
+                substr((string) $reservation->event_time, 0, 5),
+                $reservation->type,
+                $reservation->id
+            );
+
+            if ($conflict) {
+                $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
+
+                return "Cannot confirm — {$chapel} was already confirmed for {$conflictTime} on the same date by another reservation.";
+            }
+        }
+
+        if ($reservation->location_id) {
+            $conflict = $this->conflicts->findLocationConflict(
+                $reservation->location_id,
+                $reservation->event_date->format('Y-m-d'),
+                substr((string) $reservation->event_time, 0, 5),
+                $reservation->type,
+                $reservation->id
+            );
+
+            if ($conflict) {
+                $locationName = $reservation->location?->name ?? 'This venue';
+                $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
+
+                return "Cannot confirm — {$locationName} was already confirmed for {$conflictTime} on the same date by another reservation.";
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Side effects that fire the first time a reservation transitions into
+     * 'confirmed': seed the rota/volunteer slots, notify the other admins,
+     * and email the contact person. The calendar itself needs no separate
+     * sync step — the Calendar page reads reservations live, so saving the
+     * status change above is what "creates/updates the calendar event".
+     */
+    protected function handleNewlyConfirmed(Reservation $reservation, Request $request): void
+    {
+        $this->seedRota($reservation);
+
+        $this->notifier->notifyAdmins(
+            kind: 'confirmed',
+            title: 'Reservation confirmed',
+            body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} is now confirmed.",
+            reservation: $reservation,
+            except: $request->user()
+        );
+
+        if ($reservation->contact_email) {
+            Mail::to($reservation->contact_email)
+                ->send(new ReservationConfirmed($reservation->loadMissing('priest')));
+        }
     }
 
     /**

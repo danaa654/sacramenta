@@ -1,12 +1,16 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
 const props = defineProps({
     reservation: {
         type: Object,
         required: true,
+    },
+    priests: {
+        type: Array,
+        default: () => [],
     },
 });
 
@@ -17,6 +21,7 @@ const typeLabels = {
     first_communion: 'First Communion',
     confirmation: 'Confirmation',
     pamisa_sa_kalag: 'Pamisa sa Kalag',
+    mass: 'Mass',
     chapel_mass: 'Chapel Mass',
     school_mass: 'School Mass',
     house_blessing: 'House Blessing',
@@ -34,6 +39,20 @@ const statusStyles = {
     completed: 'bg-[#E4EDE1] text-[#4f7a4a] border-[#c9dcc3]',
     archived: 'bg-white text-[#3f6470]/50 border-[#3f6470]/15',
 };
+
+const statusOptions = [
+    { value: 'draft', label: 'Draft' },
+    { value: 'confirmed', label: 'Confirmed' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'archived', label: 'Cancelled' },
+];
+
+const paymentStatusOptions = [
+    { value: 'unpaid', label: 'Unpaid' },
+    { value: 'partial', label: 'Partial' },
+    { value: 'paid', label: 'Paid' },
+    { value: 'waived', label: 'Waived' },
+];
 
 function formatDate(date) {
     if (!date) return '—';
@@ -140,16 +159,44 @@ function saveRota() {
     });
 }
 
-// ---- Status transition ----
+// ---- Reservation Actions card: priest, status, payment ----
+//
+// One form backs the whole sidebar card. "Save Changes" persists all three
+// fields together; "Confirm Reservation" and "Cancel Reservation" just set
+// `status` first and submit the same form, so a priest picked right before
+// confirming is saved in the same request.
+const actionsForm = useForm({
+    priest_id: props.reservation.priest_id ?? '',
+    status: props.reservation.status,
+    payment_status: props.reservation.payment_status ?? 'unpaid',
+});
 
-const statusForm = useForm({ status: 'confirmed' });
+function saveActions() {
+    actionsForm.patch(route('reservations.actions.update', props.reservation.id), {
+        preserveScroll: true,
+    });
+}
 
 function confirmReservation() {
     if (!allRequirementsComplete.value) return;
 
-    statusForm.patch(route('reservations.status.update', props.reservation.id), {
-        preserveScroll: true,
-    });
+    actionsForm.status = 'confirmed';
+    saveActions();
+}
+
+function cancelReservation() {
+    if (!confirm('Cancel this reservation? The contact and any assigned priest will keep their existing details, but it will be marked cancelled.')) {
+        return;
+    }
+
+    actionsForm.status = 'archived';
+    saveActions();
+}
+
+function deleteReservation() {
+    if (confirm(`Delete the reservation for ${props.reservation.contact_name}? This cannot be undone.`)) {
+        router.delete(route('reservations.destroy', props.reservation.id));
+    }
 }
 
 const confirmTooltip = computed(() => {
@@ -161,21 +208,15 @@ const confirmTooltip = computed(() => {
 <template>
     <Head title="Reservation Details" />
 
-    <AuthenticatedLayout>
-        <template #header>
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[#8CA089]">
-                        Sacramenta
-                    </p>
-                    <h2 class="font-serif text-3xl font-medium leading-tight text-[#173528]">
-                        Reservation Details
-                    </h2>
-                </div>
-                <div class="flex items-center gap-3">
+    <AuthenticatedLayout title="Reservation Details">
+        <div class="py-10">
+            <div class="mx-auto max-w-6xl space-y-6 px-4 sm:px-6 lg:px-8">
+
+                <div class="flex items-center justify-end gap-3">
                     <Link
+                        v-if="reservation.type !== 'mass'"
                         :href="route('reservations.edit', reservation.id)"
-                        class="rounded-full border border-[#173528]/25 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#173528] transition hover:bg-[#173528]/5"
+                        class="rounded-full border border-[#3f6470]/25 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60"
                     >
                         Edit
                     </Link>
@@ -186,11 +227,9 @@ const confirmTooltip = computed(() => {
                         Back to List
                     </Link>
                 </div>
-            </div>
-        </template>
 
-        <div class="py-10">
-            <div class="mx-auto max-w-4xl space-y-6 px-4 sm:px-6 lg:px-8">
+                <div class="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
+                <div class="space-y-6 lg:col-span-2">
 
                 <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm">
                     <div class="flex items-center justify-between">
@@ -232,7 +271,9 @@ const confirmTooltip = computed(() => {
                         </div>
                         <div>
                             <dt class="field-label">Assigned Priest</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.priest?.name ?? 'Unassigned' }}</dd>
+                            <dd class="mt-1 text-sm text-[#2f4a4a]">
+                                {{ reservation.priest?.name ?? 'Unassigned' }}
+                            </dd>
                         </div>
                         <div>
                             <dt class="field-label">Venue</dt>
@@ -389,34 +430,104 @@ const confirmTooltip = computed(() => {
                     </div>
                 </div>
 
-                <!-- Confirm action -->
-                <div
-                    v-if="reservation.status === 'draft'"
-                    class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm"
-                >
-                    <div class="flex items-center justify-between gap-4">
-                        <div>
-                            <h3 class="font-serif text-xl font-medium text-[#3f6470]">Confirm Reservation</h3>
-                            <p class="mt-1 text-sm text-[#3f6470]/60">
-                                Moves this reservation from draft to confirmed status.
+                </div>
+
+                <!-- Reservation Actions sidebar -->
+                <div class="lg:sticky lg:top-6">
+                    <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm">
+                        <h3 class="font-serif text-xl font-medium text-[#3f6470]">Reservation Actions</h3>
+
+                        <div class="mt-5 space-y-4">
+                            <div>
+                                <label class="field-label" for="action-priest">Assigned Priest</label>
+                                <select
+                                    id="action-priest"
+                                    v-model="actionsForm.priest_id"
+                                    class="field-input mt-1.5"
+                                >
+                                    <option value="">Unassigned</option>
+                                    <option v-for="priest in priests" :key="priest.id" :value="priest.id">
+                                        {{ priest.name }}
+                                    </option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="field-label" for="action-status">Status</label>
+                                <select
+                                    id="action-status"
+                                    v-model="actionsForm.status"
+                                    class="field-input mt-1.5 capitalize"
+                                >
+                                    <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
+                                        {{ opt.label }}
+                                    </option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="field-label" for="action-payment">Payment</label>
+                                <select
+                                    id="action-payment"
+                                    v-model="actionsForm.payment_status"
+                                    class="field-input mt-1.5 capitalize"
+                                >
+                                    <option v-for="opt in paymentStatusOptions" :key="opt.value" :value="opt.value">
+                                        {{ opt.label }}
+                                    </option>
+                                </select>
+                            </div>
+
+                            <p v-if="actionsForm.errors.status" class="text-sm text-red-600">
+                                {{ actionsForm.errors.status }}
                             </p>
+
+                            <button
+                                type="button"
+                                @click="saveActions"
+                                :disabled="actionsForm.processing"
+                                class="w-full rounded-full border border-[#3f6470]/20 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                Save Changes
+                            </button>
                         </div>
-                        <button
-                            type="button"
-                            @click="confirmReservation"
-                            :disabled="!allRequirementsComplete || statusForm.processing"
-                            :title="confirmTooltip"
-                            class="shrink-0 rounded-full bg-[#8CA089] px-8 py-3 text-sm font-semibold uppercase tracking-[0.1em] text-white shadow-sm shadow-[#8CA089]/30 transition hover:-translate-y-0.5 hover:bg-[#7c9078] hover:shadow-md disabled:pointer-events-none disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-[#3f6470]/20 disabled:text-[#3f6470]/50 disabled:shadow-none"
-                        >
-                            Confirm Reservation
-                        </button>
+
+                        <div class="mt-5 space-y-3 border-t border-[#3f6470]/10 pt-5">
+                            <button
+                                v-if="reservation.status === 'draft'"
+                                type="button"
+                                @click="confirmReservation"
+                                :disabled="!allRequirementsComplete || actionsForm.processing"
+                                :title="confirmTooltip"
+                                class="w-full rounded-full bg-[#8CA089] px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-sm shadow-[#8CA089]/30 transition hover:-translate-y-0.5 hover:bg-[#7c9078] hover:shadow-md disabled:pointer-events-none disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-[#3f6470]/20 disabled:text-[#3f6470]/50 disabled:shadow-none"
+                            >
+                                Confirm Reservation
+                            </button>
+                            <p v-if="reservation.status === 'draft' && !allRequirementsComplete" class="text-xs text-[#3f6470]/50">
+                                {{ confirmTooltip }}
+                            </p>
+
+                            <button
+                                v-if="reservation.status !== 'archived'"
+                                type="button"
+                                @click="cancelReservation"
+                                :disabled="actionsForm.processing"
+                                class="w-full rounded-full border border-[#8a6a34]/30 bg-[#EFE6D8]/60 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#8a6a34] transition hover:bg-[#EFE6D8] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                Cancel Reservation
+                            </button>
+
+                            <button
+                                type="button"
+                                @click="deleteReservation"
+                                class="w-full rounded-full border border-red-200 bg-red-50 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-red-600 transition hover:bg-red-100"
+                            >
+                                Delete Reservation
+                            </button>
+                        </div>
                     </div>
-                    <p v-if="!allRequirementsComplete" class="mt-3 text-xs text-[#3f6470]/50">
-                        {{ confirmTooltip }}
-                    </p>
-                    <p v-if="statusForm.errors.status" class="mt-3 text-sm text-red-600">
-                        {{ statusForm.errors.status }}
-                    </p>
+                </div>
+
                 </div>
 
             </div>

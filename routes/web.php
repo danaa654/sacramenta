@@ -1,11 +1,12 @@
 <?php
 
+use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinancialsController;
+use App\Http\Controllers\MassScheduleController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
-use App\Http\Controllers\PublicCalendarController;
 use App\Http\Controllers\ReservationController;
 use App\Http\Controllers\RotaController;
 use Illuminate\Foundation\Application;
@@ -21,10 +22,6 @@ Route::get('/', function () {
     ]);
 });
 
-// Public parishioner calendar — no auth. Only ever shows confirmed,
-// non-private event types (see PublicCalendarController).
-Route::get('/parish-calendar', [PublicCalendarController::class, 'index'])->name('calendar.public');
-
 Route::get('/dashboard', [DashboardController::class, 'index'])
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
@@ -34,6 +31,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('financials', [FinancialsController::class, 'index'])->name('financials.index');
     Route::patch('financials/{reservation}', [FinancialsController::class, 'update'])->name('financials.update');
+
+    Route::get('archives', [ArchiveController::class, 'index'])->name('archives.index');
+
+    Route::get('masses/unassigned', [MassScheduleController::class, 'unassigned'])->name('masses.unassigned');
+    Route::patch('masses/{reservation}/assign-priest', [MassScheduleController::class, 'assignPriest'])
+        ->name('masses.assign-priest');
+    Route::patch('masses/{reservation}/cancel', [MassScheduleController::class, 'cancel'])
+        ->name('masses.cancel');
+    Route::patch('masses/{reservation}/restore', [MassScheduleController::class, 'restore'])
+        ->name('masses.restore');
 
     // NOTE: this must be registered before Route::resource() below, otherwise
     // the resource's GET reservations/{reservation} route will swallow
@@ -49,6 +56,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::patch('reservations/{reservation}/status', [ReservationController::class, 'updateStatus'])
         ->name('reservations.status.update');
+
+    Route::patch('reservations/{reservation}/actions', [ReservationController::class, 'updateActions'])
+        ->name('reservations.actions.update');
 
     Route::resource('reservations', ReservationController::class);
 

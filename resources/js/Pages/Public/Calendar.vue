@@ -34,20 +34,56 @@ function formatTime(time) {
 // Only date/time/type/location ever arrive here — no names, no contact
 // info, no fees. See PublicCalendarController for what's deliberately
 // left out of this payload.
-const calendarEvents = computed(() =>
-    props.events.map((e, i) => {
-        const color = props.colors[e.type] ?? '#7c3aed';
-        return {
-            id: String(i),
-            title: `${e.title}${e.location ? ' · ' + e.location : ''}${e.event_time ? ' · ' + formatTime(e.event_time) : ''}`,
-            start: e.event_time ? `${e.event_date}T${e.event_time}` : e.event_date,
-            allDay: !e.event_time,
+//
+// Mass times are grouped into a single per-day event listing every time
+// (e.g. "Mass: 5:30a, 7a, 8:30a...") instead of one block per Mass —
+// the regular weekly schedule can be 5-16 Masses on a single day, which
+// used to render as a wall of clipped, near-identical pills. Baptism/
+// Confession slots (far less frequent) still get their own event each.
+const calendarEvents = computed(() => {
+    const events = [];
+    const massesByDate = {};
+
+    for (const e of props.events) {
+        if (e.type !== 'mass') {
+            const color = props.colors[e.type] ?? '#7c3aed';
+            events.push({
+                id: `event-${events.length}`,
+                title: `${e.title}${e.location ? ' · ' + e.location : ''}${e.event_time ? ' · ' + formatTime(e.event_time) : ''}`,
+                start: e.event_time ? `${e.event_date}T${e.event_time}` : e.event_date,
+                allDay: !e.event_time,
+                backgroundColor: color,
+                borderColor: color,
+                textColor: '#ffffff',
+            });
+            continue;
+        }
+
+        (massesByDate[e.event_date] ??= []).push(e);
+    }
+
+    for (const [date, masses] of Object.entries(massesByDate)) {
+        masses.sort((a, b) => (a.event_time ?? '').localeCompare(b.event_time ?? ''));
+        const allTimes = masses.map((m) => formatTime(m.event_time));
+        const shown = allTimes.slice(0, 6);
+        const remainder = allTimes.length - shown.length;
+        const times = shown.join(' · ') + (remainder > 0 ? ` +${remainder} more` : '');
+        const color = props.colors.mass ?? '#16a34a';
+
+        events.push({
+            id: `mass-${date}`,
+            title: `Mass: ${times}`,
+            start: date,
+            allDay: true,
+            classNames: ['mass-summary-event'],
             backgroundColor: color,
             borderColor: color,
             textColor: '#ffffff',
-        };
-    })
-);
+        });
+    }
+
+    return events;
+});
 
 function onDatesSet(info) {
     const year = info.view.currentStart.getFullYear();
@@ -145,5 +181,12 @@ const calendarOptions = computed(() => ({
 .sacramenta-calendar .fc-event {
     border-radius: 6px;
     padding: 1px 4px;
+}
+.sacramenta-calendar .fc-event.mass-summary-event {
+    white-space: normal;
+    line-height: 1.4;
+}
+.sacramenta-calendar .fc-event.mass-summary-event .fc-event-title {
+    white-space: normal;
 }
 </style>

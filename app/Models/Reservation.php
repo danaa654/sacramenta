@@ -21,6 +21,7 @@ class Reservation extends Model
         'event_time',
         'priest_id',
         'location_id',
+        'mass_schedule_id',
         'status',
         'details',
         'offering_amount',
@@ -47,6 +48,15 @@ class Reservation extends Model
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class);
+    }
+
+    /**
+     * The recurring weekly template row that auto-generated this
+     * reservation, if any. Null for every normal staff-entered booking.
+     */
+    public function massSchedule(): BelongsTo
+    {
+        return $this->belongsTo(MassSchedule::class);
     }
 
     public function requirements(): HasMany

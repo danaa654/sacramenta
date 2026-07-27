@@ -1,7 +1,11 @@
 <script setup>
 import { ref } from 'vue';
 import Sidebar from '@/Components/Sidebar.vue';
-import NotificationBell from '@/Components/NotificationBell.vue';
+import TopBar from '@/Components/TopBar.vue';
+
+defineProps({
+    title: { type: String, default: '' },
+});
 
 const showingSidebar = ref(false);
 </script>
@@ -13,14 +17,14 @@ const showingSidebar = ref(false);
             class="fixed inset-0 -z-10 dark:hidden"
             style="background-color: #FAF7F0;"
         ></div>
-        <!-- Dark-mode background -->
+        <!-- Dark-mode background: flat solid color, no gradient/clouds -->
         <div
             class="fixed inset-0 -z-10 hidden dark:block"
-            style="background-color: #0f1720;"
+            style="background-color: #2C3947;"
         ></div>
 
-        <!-- Drifting sage clouds -->
-        <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <!-- Drifting sage clouds (light mode only — dark mode stays a flat solid color) -->
+        <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden dark:hidden">
             <div class="pcloud pcloud--a"></div>
             <div class="pcloud pcloud--b"></div>
             <div class="pcloud pcloud--c"></div>
@@ -34,19 +38,7 @@ const showingSidebar = ref(false);
             />
 
             <div class="flex h-screen flex-1 flex-col overflow-y-auto overflow-x-hidden">
-                <!-- Page Heading -->
-                <header
-                    class="sticky top-0 z-20 border-b border-black/5 backdrop-blur-xl"
-                    style="background-color: rgba(255, 248, 237, 0.72); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);"
-                    v-if="$slots.header"
-                >
-                    <div class="flex items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
-                        <div class="min-w-0 flex-1">
-                            <slot name="header" />
-                        </div>
-                        <NotificationBell />
-                    </div>
-                </header>
+                <TopBar :title="title" />
 
                 <!-- Page Content -->
                 <main class="flex-1">

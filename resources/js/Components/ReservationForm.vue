@@ -31,6 +31,16 @@ const props = defineProps({
 
 const isEdit = computed(() => !!props.reservation);
 
+// Local YYYY-MM-DD for "today", used to stop staff from picking an
+// already-past date for a brand-new reservation (see the Date field's
+// :min binding). Not applied when editing — an existing reservation for
+// a past date (e.g. one being marked completed/archived after the fact)
+// shouldn't get locked out of its own saved date.
+const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+})();
+
 // The 8-button grid. Most buttons map straight to one reservation `type`.
 // Two are "grouped" buttons that reveal a secondary set of pill choices:
 // School / Chapel Mass (pick which one), and Others (pick a category).
@@ -39,14 +49,9 @@ const gridOptions = [
     { key: 'baptism', label: 'Baptism', types: ['baptism'] },
     { key: 'burial', label: 'Burial', types: ['burial'] },
     { key: 'first_communion', label: 'First Communion', types: ['first_communion'] },
-    { key: 'confirmation', label: 'Confirmation', types: ['confirmation'] },
     { key: 'pamisa_sa_kalag', label: 'Pamisa sa Kalag', types: ['pamisa_sa_kalag'] },
-    {
-        key: 'school_chapel',
-        label: 'School / Chapel Mass',
-        types: ['school_mass', 'chapel_mass'],
-        subLabels: { school_mass: 'School Mass', chapel_mass: 'Chapel Mass' },
-    },
+    { key: 'school_mass', label: 'School Mass', types: ['school_mass'] },
+    { key: 'chapel_mass', label: 'Chapel Mass', types: ['chapel_mass'] },
     {
         key: 'others',
         label: 'Others',
@@ -88,7 +93,6 @@ const typeLabels = {
     baptism: 'Baptism',
     burial: 'Burial',
     first_communion: 'First Communion',
-    confirmation: 'Confirmation',
     pamisa_sa_kalag: 'Pamisa sa Kalag',
     school_mass: 'School Mass',
     chapel_mass: 'Chapel Mass',
@@ -360,9 +364,9 @@ function submit() {
     <form @submit.prevent="submit" class="space-y-8">
 
         <!-- Event type selector -->
-        <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm">
-            <h3 class="font-serif text-xl font-medium text-[#3f6470]">Event Type</h3>
-            <p class="mt-1 text-sm text-[#3f6470]/60">Choose the sacrament or event — the form below will change to match.</p>
+        <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
+            <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-white">Event Type</h3>
+            <p class="mt-1 text-sm text-[#3f6470]/60 dark:text-slate-400">Choose the sacrament or event — the form below will change to match.</p>
 
             <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <button
@@ -372,32 +376,16 @@ function submit() {
                     @click="selectGridOption(grid)"
                     class="rounded-xl border px-4 py-3 text-sm font-medium transition"
                     :class="activeGridKey === grid.key
-                        ? 'border-[#8CA089] bg-[#8CA089]/15 text-[#3f6470]'
-                        : 'border-[#3f6470]/15 text-[#3f6470]/70 hover:bg-[#E4EDE1]/50'"
+                        ? 'border-[#8CA089] bg-[#8CA089]/15 text-[#3f6470] dark:text-[#c9dcc3]'
+                        : 'border-[#3f6470]/15 text-[#3f6470]/70 hover:bg-[#E4EDE1]/50 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/10'"
                 >
                     {{ grid.label }}
                 </button>
             </div>
-            <p v-if="form.errors.type" class="mt-2 text-sm text-red-600">{{ form.errors.type }}</p>
-
-            <!-- School / Chapel Mass sub-choice -->
-            <div v-if="activeGridKey === 'school_chapel'" class="mt-4 flex flex-wrap gap-2 border-t border-[#3f6470]/10 pt-4">
-                <button
-                    v-for="sub in activeGridOption.types"
-                    :key="sub"
-                    type="button"
-                    @click="selectType(sub)"
-                    class="rounded-full border px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition"
-                    :class="form.type === sub
-                        ? 'border-[#8CA089] bg-[#8CA089]/15 text-[#3f6470]'
-                        : 'border-[#3f6470]/20 text-[#3f6470]/60 hover:bg-[#E4EDE1]/50'"
-                >
-                    {{ activeGridOption.subLabels[sub] }}
-                </button>
-            </div>
+            <p v-if="form.errors.type" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ form.errors.type }}</p>
 
             <!-- Others sub-choice: dropdown grouped by category -->
-            <div v-if="activeGridKey === 'others'" class="mt-4 border-t border-[#3f6470]/10 pt-4">
+            <div v-if="activeGridKey === 'others'" class="mt-4 border-t border-[#3f6470]/10 pt-4 dark:border-white/10">
                 <label class="field-label">What do you need?</label>
                 <select v-model="form.type" class="field-input" @change="form.details = defaultDetailsFor(form.type)">
                     <optgroup v-for="group in activeGridOption.subGroups" :key="group.label" :label="group.label">
@@ -410,8 +398,8 @@ function submit() {
         </div>
 
         <!-- Global fields -->
-        <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm">
-            <h3 class="font-serif text-xl font-medium text-[#3f6470]">Primary Contact &amp; Schedule</h3>
+        <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
+            <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-white">Primary Contact &amp; Schedule</h3>
 
             <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
@@ -430,7 +418,7 @@ function submit() {
                     <label class="field-label">Email (optional)</label>
                     <input v-model="form.contact_email" type="email" class="field-input" placeholder="name@example.com" />
                     <p v-if="form.errors.contact_email" class="field-error">{{ form.errors.contact_email }}</p>
-                    <p class="mt-1 text-xs text-[#3f6470]/50">Used to send a confirmation email once this reservation is confirmed.</p>
+                    <p class="mt-1 text-xs text-[#3f6470]/50 dark:text-slate-500">Used to send a confirmation email once this reservation is confirmed.</p>
                 </div>
 
                 <div class="sm:col-span-2">
@@ -441,14 +429,14 @@ function submit() {
 
                 <div>
                     <label class="field-label">Date</label>
-                    <input v-model="form.event_date" type="date" class="field-input" />
+                    <input v-model="form.event_date" type="date" class="field-input" :min="isEdit ? undefined : todayStr" />
                     <p v-if="form.errors.event_date" class="field-error">{{ form.errors.event_date }}</p>
                 </div>
 
                 <div>
                     <label class="field-label">
                         Time Slot
-                        <span v-if="loadingAvailability" class="ml-1 normal-case text-[#3f6470]/40">(checking availability…)</span>
+                        <span v-if="loadingAvailability" class="ml-1 normal-case text-[#3f6470]/40 dark:text-slate-500">(checking availability…)</span>
                     </label>
                     <select v-model="form.event_time" class="field-input">
                         <option value="">Select a time</option>
@@ -462,13 +450,13 @@ function submit() {
                         </option>
                     </select>
                     <p v-if="form.errors.event_time" class="field-error">{{ form.errors.event_time }}</p>
-                    <p v-else-if="conflictWarning" class="mt-1.5 flex items-start gap-1.5 text-xs font-medium text-amber-700">
+                    <p v-else-if="conflictWarning" class="mt-1.5 flex items-start gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
                         <svg class="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z" stroke-linecap="round" stroke-linejoin="round" />
                         </svg>
                         {{ conflictWarning }}
                     </p>
-                    <p v-else-if="form.priest_id && form.event_date && takenSlots.length" class="mt-1.5 text-xs text-[#3f6470]/50">
+                    <p v-else-if="form.priest_id && form.event_date && takenSlots.length" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
                         Greyed-out times are already booked for this priest on this date.
                     </p>
                 </div>
@@ -489,7 +477,7 @@ function submit() {
                         <option v-for="location in locations" :key="location.id" :value="location.id">{{ location.name }}</option>
                     </select>
                     <p v-if="form.errors.location_id" class="field-error">{{ form.errors.location_id }}</p>
-                    <p class="mt-1.5 text-xs text-[#3f6470]/50">Used to block double-booking the same room at the same time.</p>
+                    <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">Used to block double-booking the same room at the same time.</p>
                 </div>
 
                 <div>
@@ -501,8 +489,8 @@ function submit() {
         </div>
 
         <!-- Conditional fields -->
-        <div v-if="form.type" class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm">
-            <h3 class="font-serif text-xl font-medium text-[#3f6470]">
+        <div v-if="form.type" class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
+            <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-white">
                 {{ typeLabels[form.type] }} Details
             </h3>
 
@@ -522,18 +510,18 @@ function submit() {
                 <div class="sm:col-span-2">
                     <label class="field-label">Ceremony Type</label>
                     <div class="mt-1.5 flex flex-col gap-2 sm:flex-row sm:gap-3">
-                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a]">
+                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
                             <input v-model="form.details.ceremony_type" type="radio" value="nuptial_mass" class="mt-0.5" />
                             <span>
                                 <span class="font-medium">Nuptial Mass (with Communion)</span>
-                                <span class="block text-xs text-[#3f6470]/60">1 to 1.5 hours</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">1 to 1.5 hours</span>
                             </span>
                         </label>
-                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a]">
+                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
                             <input v-model="form.details.ceremony_type" type="radio" value="liturgy_of_the_word" class="mt-0.5" />
                             <span>
                                 <span class="font-medium">Liturgy of the Word Only (No Mass)</span>
-                                <span class="block text-xs text-[#3f6470]/60">30 to 45 minutes</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">30 to 45 minutes</span>
                             </span>
                         </label>
                     </div>
@@ -544,14 +532,14 @@ function submit() {
                     <label class="field-label">Rehearsal Date</label>
                     <input v-model="form.details.rehearsal_date" type="date" class="field-input" />
                     <p v-if="form.errors['details.rehearsal_date']" class="field-error">{{ form.errors['details.rehearsal_date'] }}</p>
-                    <p class="mt-1.5 text-xs text-[#3f6470]/50">Usually held a few days before the wedding with the entourage.</p>
+                    <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">Usually held a few days before the wedding with the entourage.</p>
                 </div>
 
-                <label class="flex items-center gap-2 text-sm text-[#2f4a4a]">
+                <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
                     <input v-model="form.details.canonical_interview" type="checkbox" class="checkbox-input" />
                     Canonical Interview completed
                 </label>
-                <label class="flex items-center gap-2 text-sm text-[#2f4a4a]">
+                <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
                     <input v-model="form.details.marriage_banns" type="checkbox" class="checkbox-input" />
                     Marriage Banns posted
                 </label>
@@ -580,18 +568,18 @@ function submit() {
                 <div>
                     <label class="field-label">Baptism Type</label>
                     <div class="mt-1.5 flex flex-col gap-2 sm:flex-row sm:gap-3">
-                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a]">
+                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
                             <input v-model="form.details.baptism_type" type="radio" value="individual" class="mt-0.5" />
                             <span>
                                 <span class="font-medium">Individual / Private</span>
-                                <span class="block text-xs text-[#3f6470]/60">~20-30 min</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">~20-30 min</span>
                             </span>
                         </label>
-                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a]">
+                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
                             <input v-model="form.details.baptism_type" type="radio" value="group" class="mt-0.5" />
                             <span>
                                 <span class="font-medium">Group / Community</span>
-                                <span class="block text-xs text-[#3f6470]/60">~45-60 min, depending on number of children</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">~45-60 min, depending on number of children</span>
                             </span>
                         </label>
                     </div>
@@ -600,16 +588,16 @@ function submit() {
 
                 <div>
                     <label class="field-label">Godparents (Ninongs / Ninangs)</label>
-                    <p class="mt-1 text-xs text-[#3f6470]/60">Must be practicing Catholics, generally 16+ and confirmed.</p>
+                    <p class="mt-1 text-xs text-[#3f6470]/60 dark:text-slate-400">Must be practicing Catholics, generally 16+ and confirmed.</p>
                     <div class="mt-2 space-y-2">
                         <div v-for="(gp, i) in form.details.godparents" :key="i" class="flex items-center gap-2">
                             <input v-model="gp.name" type="text" class="field-input" :placeholder="`Godparent ${i + 1} full name`" />
-                            <button type="button" @click="removeGodparent(i)" class="shrink-0 rounded-lg border border-[#3f6470]/20 p-2 text-[#3f6470]/50 transition hover:bg-red-50 hover:text-red-500">
+                            <button type="button" @click="removeGodparent(i)" class="shrink-0 rounded-lg border border-[#3f6470]/20 p-2 text-[#3f6470]/50 transition hover:bg-red-50 hover:text-red-500 dark:border-white/10 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-400">
                                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M6 18L18 6" stroke-linecap="round" /></svg>
                             </button>
                         </div>
                     </div>
-                    <button type="button" @click="addGodparent" class="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60">
+                    <button type="button" @click="addGodparent" class="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
                         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round" /></svg>
                         Add Godparent
                     </button>
@@ -636,18 +624,18 @@ function submit() {
                 <div class="sm:col-span-2">
                     <label class="field-label">Service Type</label>
                     <div class="mt-1.5 flex flex-col gap-2 sm:flex-row sm:gap-3">
-                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a]">
+                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
                             <input v-model="form.details.service_type" type="radio" value="funeral_mass" class="mt-0.5" />
                             <span>
                                 <span class="font-medium">Full Funeral Mass</span>
-                                <span class="block text-xs text-[#3f6470]/60">~60 min (up to 90 for large attendance)</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">~60 min (up to 90 for large attendance)</span>
                             </span>
                         </label>
-                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a]">
+                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
                             <input v-model="form.details.service_type" type="radio" value="funeral_service" class="mt-0.5" />
                             <span>
                                 <span class="font-medium">Funeral Service (No Mass)</span>
-                                <span class="block text-xs text-[#3f6470]/60">~20-30 min</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">~20-30 min</span>
                             </span>
                         </label>
                     </div>
@@ -667,7 +655,7 @@ function submit() {
                 </div>
 
                 <div>
-                    <label class="flex items-center gap-2 text-sm text-[#2f4a4a]">
+                    <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
                         <input v-model="form.details.has_eulogy" type="checkbox" class="checkbox-input" />
                         There will be a eulogy
                     </label>
@@ -693,23 +681,23 @@ function submit() {
                     <label class="field-label">Who's Booking?</label>
                     <div class="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <label
-                            class="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
-                            :class="form.details.booking_mode === 'school_batch' ? 'border-[#3f6470] bg-[#3f6470]/5' : 'border-black/10'"
+                            class="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-sm text-[#2f4a4a] dark:text-slate-100"
+                            :class="form.details.booking_mode === 'school_batch' ? 'border-[#3f6470] bg-[#3f6470]/5 dark:border-[#8CA089] dark:bg-[#8CA089]/10' : 'border-black/10 dark:border-white/10'"
                         >
                             <input v-model="form.details.booking_mode" type="radio" value="school_batch" class="mt-0.5" />
                             <span>
                                 <span class="block font-medium">School / Group Booking</span>
-                                <span class="block text-xs text-[#3f6470]/60">For a school admin or teacher booking a whole Grade 3 batch.</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">For a school admin or teacher booking a whole Grade 3 batch.</span>
                             </span>
                         </label>
                         <label
-                            class="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
-                            :class="form.details.booking_mode === 'individual' ? 'border-[#3f6470] bg-[#3f6470]/5' : 'border-black/10'"
+                            class="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-sm text-[#2f4a4a] dark:text-slate-100"
+                            :class="form.details.booking_mode === 'individual' ? 'border-[#3f6470] bg-[#3f6470]/5 dark:border-[#8CA089] dark:bg-[#8CA089]/10' : 'border-black/10 dark:border-white/10'"
                         >
                             <input v-model="form.details.booking_mode" type="radio" value="individual" class="mt-0.5" />
                             <span>
                                 <span class="block font-medium">Individual / Parish Class</span>
-                                <span class="block text-xs text-[#3f6470]/60">For a parent registering their child for the parish's weekend catechism program.</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">For a parent registering their child for the parish's weekend catechism program.</span>
                             </span>
                         </label>
                     </div>
@@ -731,7 +719,7 @@ function submit() {
                         <label class="field-label">Number of Communicants</label>
                         <input v-model.number="form.details.communicant_count" type="number" min="1" class="field-input" placeholder="e.g. 75" />
                         <p v-if="form.errors['details.communicant_count']" class="field-error">{{ form.errors['details.communicant_count'] }}</p>
-                        <p class="mt-1.5 text-xs text-[#3f6470]/50">So the parish knows how many hosts and seats to prepare.</p>
+                        <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">So the parish knows how many hosts and seats to prepare.</p>
                     </div>
                     <div>
                         <label class="field-label">Parish / School Catechism Program</label>
@@ -779,8 +767,8 @@ function submit() {
                     placeholder="Juan Dela Cruz&#10;Maria Santos&#10;Pedro Reyes"
                 ></textarea>
                 <p v-if="form.errors['details.names']" class="field-error">{{ form.errors['details.names'] }}</p>
-                <p class="mt-1.5 text-xs text-[#3f6470]/50">Type or paste one name per line — each line becomes a separate entry.</p>
-                <p class="mt-1 text-xs text-[#3f6470]/50">Submit at least 1-2 days before a weekday Mass, or a week ahead for a Sunday Mass, so the name makes the printed/announced list.</p>
+                <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">Type or paste one name per line — each line becomes a separate entry.</p>
+                <p class="mt-1 text-xs text-[#3f6470]/50 dark:text-slate-500">Submit at least 1-2 days before a weekday Mass, or a week ahead for a Sunday Mass, so the name makes the printed/announced list.</p>
             </div>
 
             <!-- School Mass -->
@@ -813,22 +801,22 @@ function submit() {
                         <option value="church">At the Church</option>
                     </select>
                     <p v-if="form.errors['details.venue']" class="field-error">{{ form.errors['details.venue'] }}</p>
-                    <p v-if="form.details.venue === 'on_campus'" class="mt-1.5 text-xs text-[#3f6470]/50">
+                    <p v-if="form.details.venue === 'on_campus'" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
                         School to set up a temporary altar, crucifix, candles, sound system, and chairs.
                     </p>
                 </div>
                 <div class="sm:col-span-2">
-                    <label class="flex items-center gap-2 text-sm text-[#2f4a4a]">
+                    <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
                         <input v-model="form.details.student_volunteers_assigned" type="checkbox" class="checkbox-input" />
                         Student volunteers assigned (lectors, altar servers, choir)
                     </label>
                 </div>
                 <div class="sm:col-span-2">
-                    <label class="flex items-center gap-2 text-sm text-[#2f4a4a]">
+                    <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
                         <input v-model="form.details.recurring" type="checkbox" class="checkbox-input" />
                         Recurring Event (First Friday of every month)
                     </label>
-                    <p v-if="form.details.recurring" class="mt-1.5 text-xs text-[#3f6470]/50">
+                    <p v-if="form.details.recurring" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
                         Next occurrence: {{ nextFirstFriday }}
                     </p>
                 </div>
@@ -846,15 +834,15 @@ function submit() {
 
             <!-- House Blessing -->
             <div v-else-if="form.type === 'house_blessing'" class="mt-5 space-y-3">
-                <label class="flex items-center gap-2 text-sm text-[#2f4a4a]">
+                <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
                     <input v-model="form.details.transportation_arranged" type="checkbox" class="checkbox-input" />
                     Transportation for the priest arranged (fetch and bring back)
                 </label>
-                <label class="flex items-center gap-2 text-sm text-[#2f4a4a]">
+                <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
                     <input v-model="form.details.reception_planned" type="checkbox" class="checkbox-input" />
                     Reception (meal/snacks) planned afterward
                 </label>
-                <p class="text-xs text-[#3f6470]/50">
+                <p class="text-xs text-[#3f6470]/50 dark:text-slate-500">
                     The visit address above is where the priest will bless the home. Ceremony itself typically runs 15-30 minutes; add extra time if a reception is planned.
                 </p>
             </div>
@@ -867,11 +855,11 @@ function submit() {
                     <p v-if="form.errors['details.business_name']" class="field-error">{{ form.errors['details.business_name'] }}</p>
                 </div>
                 <div class="sm:col-span-2">
-                    <label class="flex items-center gap-2 text-sm text-[#2f4a4a]">
+                    <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
                         <input v-model="form.details.transportation_arranged" type="checkbox" class="checkbox-input" />
                         Transportation for the priest arranged (fetch and bring back)
                     </label>
-                    <p class="mt-1.5 text-xs text-[#3f6470]/50">The visit address above is where the priest will bless the premises.</p>
+                    <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">The visit address above is where the priest will bless the premises.</p>
                 </div>
             </div>
 
@@ -880,12 +868,12 @@ function submit() {
                 <label class="field-label">Vehicle / Article Description</label>
                 <input v-model="form.details.item_description" type="text" class="field-input" placeholder="e.g. 2019 Toyota Vios, plate ABC 1234" />
                 <p v-if="form.errors['details.item_description']" class="field-error">{{ form.errors['details.item_description'] }}</p>
-                <p class="mt-1.5 text-xs text-[#3f6470]/50">Bring the item to the church courtyard at the date/time above. Usually takes just 5-10 minutes.</p>
+                <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">Bring the item to the church courtyard at the date/time above. Usually takes just 5-10 minutes.</p>
             </div>
 
             <!-- Anointing of the Sick / Last Rites -->
             <div v-else-if="form.type === 'anointing_of_the_sick'" class="mt-5 space-y-4">
-                <label class="flex items-center gap-2 text-sm text-[#2f4a4a]">
+                <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
                     <input v-model="form.details.is_emergency" type="checkbox" class="checkbox-input" />
                     This is an emergency
                 </label>
@@ -894,7 +882,7 @@ function submit() {
                     <input v-model="form.details.patient_location" type="text" class="field-input" />
                     <p v-if="form.errors['details.patient_location']" class="field-error">{{ form.errors['details.patient_location'] }}</p>
                 </div>
-                <p v-if="form.details.is_emergency" class="text-xs font-medium text-red-600">
+                <p v-if="form.details.is_emergency" class="text-xs font-medium text-red-600 dark:text-red-400">
                     For a true emergency, please also call the parish office directly rather than relying on this form alone.
                 </p>
             </div>
@@ -913,7 +901,7 @@ function submit() {
             </div>
 
             <!-- Others (not otherwise categorized): no extra fields yet -->
-            <p v-else class="mt-5 text-sm text-[#3f6470]/50">
+            <p v-else class="mt-5 text-sm text-[#3f6470]/50 dark:text-slate-500">
                 No additional details needed for this event type.
             </p>
         </div>
@@ -941,6 +929,10 @@ function submit() {
     color: rgba(63, 100, 112, 0.6);
 }
 
+:global(.dark) .field-label {
+    color: rgba(203, 213, 225, 0.7);
+}
+
 .field-input {
     width: 100%;
     border-radius: 0.75rem;
@@ -950,6 +942,16 @@ function submit() {
     font-size: 0.875rem;
     color: #2f4a4a;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:global(.dark) .field-input {
+    border-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(30, 41, 59, 0.8);
+    color: #f1f5f9;
+}
+
+:global(.dark) .field-input::placeholder {
+    color: rgba(148, 163, 184, 0.6);
 }
 
 .field-input:focus {
@@ -963,10 +965,24 @@ option:disabled {
     color: rgba(63, 100, 112, 0.35);
 }
 
+:global(.dark) .field-input:disabled,
+:global(.dark) option:disabled {
+    color: rgba(148, 163, 184, 0.35);
+}
+
+:global(.dark) .field-input option {
+    background-color: #1e293b;
+    color: #f1f5f9;
+}
+
 .field-error {
     margin-top: 0.375rem;
     font-size: 0.8125rem;
     color: #dc2626;
+}
+
+:global(.dark) .field-error {
+    color: #f87171;
 }
 
 .checkbox-input {
@@ -975,5 +991,10 @@ option:disabled {
     border-radius: 0.35rem;
     border-color: rgba(63, 100, 112, 0.35);
     color: #8CA089;
+}
+
+:global(.dark) .checkbox-input {
+    border-color: rgba(148, 163, 184, 0.4);
+    background-color: rgba(30, 41, 59, 0.8);
 }
 </style>

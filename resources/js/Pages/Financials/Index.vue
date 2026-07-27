@@ -115,18 +115,7 @@ function saveEdit(r) {
 <template>
     <Head title="Financials" />
 
-    <AuthenticatedLayout>
-        <template #header>
-            <div>
-                <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#8CA089]">
-                    Sacramenta
-                </p>
-                <h2 class="font-serif text-2xl font-medium leading-tight text-[#173528]">
-                    Financials
-                </h2>
-            </div>
-        </template>
-
+    <AuthenticatedLayout title="Financials">
         <div class="py-10">
             <div class="mx-auto max-w-7xl space-y-6 px-4 sm:px-6 lg:px-8">
 

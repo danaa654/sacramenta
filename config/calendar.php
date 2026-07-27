@@ -24,6 +24,7 @@ return [
         'wedding' => '#d97706', // orange
         'baptism' => '#2563eb', // blue
         'burial' => '#4b5563', // charcoal/grey
+        'mass' => '#16a34a', // green (regular parish Mass schedule)
         'chapel_mass' => '#16a34a', // green
         'school_mass' => '#16a34a', // green
         'first_communion' => '#16a34a', // green (group Mass)
@@ -41,6 +42,7 @@ return [
     'default_color' => '#7c3aed',
 
     'public_types' => [
+        'mass',
         'chapel_mass',
         'school_mass',
         'baptism',

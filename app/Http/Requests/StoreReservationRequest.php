@@ -34,7 +34,16 @@ class StoreReservationRequest extends FormRequest
             'contact_mobile' => ['required', 'string', 'max:30'],
             'contact_email' => ['nullable', 'email', 'max:255'],
             'contact_address' => ['nullable', 'string', 'max:500'],
-            'event_date' => ['required', 'date'],
+            // Past dates are blocked only on create — editing an existing
+            // reservation must not fail validation just because its own
+            // saved date has since passed (e.g. marking it completed
+            // after the fact), so this only applies when there's no
+            // {reservation} route-bound model yet.
+            'event_date' => array_filter([
+                'required',
+                'date',
+                $this->route('reservation') ? null : 'after_or_equal:today',
+            ]),
             'event_time' => ['nullable', 'date_format:H:i'],
             'priest_id' => ['nullable', 'exists:priests,id'],
             'location_id' => ['nullable', 'exists:locations,id'],
