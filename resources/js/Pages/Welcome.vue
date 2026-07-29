@@ -1,6 +1,7 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
 import { onMounted, onUnmounted, ref } from 'vue';
+import ThemeToggleCompact from '@/Components/ThemeToggleCompact.vue';
 
 defineProps({
     canLogin: {
@@ -261,16 +262,32 @@ const mobileMenuOpen = ref(false);
 function closeMobileMenu() {
     mobileMenuOpen.value = false;
 }
+
+// Fixed pseudo-random firefly positions/timings for the dark-mode hero,
+// generated once so they don't reshuffle on every re-render.
+const fireflies = Array.from({ length: 18 }, (_, i) => {
+    const seed = i * 137.5; // golden-angle spread for a natural, non-grid look
+    const rand = (n) => ((Math.sin(seed * (n + 1)) + 1) / 2);
+    return {
+        left: `${(rand(1) * 92 + 2).toFixed(1)}%`,
+        top: `${(rand(2) * 80 + 5).toFixed(1)}%`,
+        size: `${(rand(3) * 3 + 2).toFixed(1)}px`,
+        duration: `${(rand(4) * 6 + 6).toFixed(1)}s`,
+        delay: `${(rand(5) * 8).toFixed(1)}s`,
+        driftX: `${(rand(6) * 60 - 30).toFixed(0)}px`,
+        driftY: `${(rand(7) * 50 - 25).toFixed(0)}px`,
+    };
+});
 </script>
 
 <template>
     <Head title="Welcome" />
 
-    <div class="min-h-screen bg-[#F7F5EC] font-sans text-[#2f4a4a]">
+    <div class="min-h-screen bg-[#F7F5EC] font-sans text-[#2f4a4a] dark:bg-slate-900 dark:text-slate-100">
         <!-- Sticky header -->
-        <header class="sticky top-0 z-30 border-b border-white/50 bg-[#F7F5EC]/80 backdrop-blur-md">
+        <header class="sticky top-0 z-30 border-b border-white/50 bg-[#F7F5EC]/80 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/80">
             <div class="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6 md:px-10">
-                <a href="#home" class="shrink-0 font-serif text-lg font-semibold tracking-wide text-[#3f6470] sm:text-xl">
+                <a href="#home" class="shrink-0 font-serif text-lg font-semibold tracking-wide text-[#3f6470] dark:text-white sm:text-xl">
                     SACRAMENTA
                 </a>
 
@@ -279,13 +296,15 @@ function closeMobileMenu() {
                         v-for="link in navLinks"
                         :key="link.label"
                         :href="link.href"
-                        class="text-xs font-semibold uppercase tracking-[0.18em] text-[#3f6470] transition hover:text-[#8CA089]"
+                        class="text-xs font-semibold uppercase tracking-[0.18em] text-[#3f6470] dark:text-slate-300 transition hover:text-[#8CA089]"
                     >
                         {{ link.label }}
                     </a>
                 </nav>
 
                 <div class="flex shrink-0 items-center gap-2 sm:gap-3">
+                    <ThemeToggleCompact />
+
                     <Link
                         v-if="canLogin"
                         :href="$page.props.auth.user ? route('dashboard') : route('login')"
@@ -298,7 +317,7 @@ function closeMobileMenu() {
                     <button
                         type="button"
                         @click="mobileMenuOpen = !mobileMenuOpen"
-                        class="inline-flex items-center justify-center rounded-full p-2 text-[#3f6470] transition hover:bg-white/60 lg:hidden"
+                        class="inline-flex items-center justify-center rounded-full p-2 text-[#3f6470] dark:text-slate-200 transition hover:bg-white/60 dark:hover:bg-white/10 lg:hidden"
                         :aria-expanded="mobileMenuOpen"
                         aria-label="Toggle navigation menu"
                     >
@@ -315,7 +334,7 @@ function closeMobileMenu() {
             <!-- Mobile nav drawer -->
             <div
                 v-if="mobileMenuOpen"
-                class="border-t border-white/50 bg-[#F7F5EC]/95 backdrop-blur-md lg:hidden"
+                class="border-t border-white/50 bg-[#F7F5EC]/95 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95 lg:hidden"
             >
                 <nav class="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-3 sm:px-6">
                     <a
@@ -323,7 +342,7 @@ function closeMobileMenu() {
                         :key="link.label"
                         :href="link.href"
                         @click="closeMobileMenu"
-                        class="rounded-lg px-3 py-2.5 text-sm font-semibold uppercase tracking-[0.1em] text-[#3f6470] transition hover:bg-white/60 hover:text-[#8CA089]"
+                        class="rounded-lg px-3 py-2.5 text-sm font-semibold uppercase tracking-[0.1em] text-[#3f6470] dark:text-slate-300 transition hover:bg-white/60 dark:hover:bg-white/10 hover:text-[#8CA089]"
                     >
                         {{ link.label }}
                     </a>
@@ -337,27 +356,60 @@ function closeMobileMenu() {
                 <img
                     src="/background.png"
                     alt=""
-                    class="h-full w-full object-cover object-[75%_center]"
+                    class="h-full w-full object-cover object-[75%_center] dark:hidden"
+                />
+                <img
+                    src="/backgrounddarkmode.png"
+                    alt=""
+                    class="hidden h-full w-full object-cover object-[75%_center] dark:block"
                 />
                 <div
-                    class="absolute inset-0"
+                    class="absolute inset-0 dark:hidden"
                     style="background: linear-gradient(90deg, #F7F5EC 0%, #F7F5EC 28%, rgba(247,245,236,0.85) 42%, rgba(247,245,236,0.35) 58%, rgba(247,245,236,0.05) 72%);"
                 ></div>
                 <div
-                    class="absolute inset-0"
+                    class="absolute inset-0 dark:hidden"
                     style="background: linear-gradient(180deg, rgba(247,245,236,0.15) 0%, rgba(247,245,236,0) 30%, rgba(247,245,236,0.5) 100%);"
                 ></div>
+                <!-- Dark-mode overlay: darker on the text side, clear over the church -->
+                <div
+                    class="absolute inset-0 hidden dark:block"
+                    style="background: linear-gradient(90deg, #0f172a 0%, #0f172a 26%, rgba(15,23,42,0.88) 40%, rgba(15,23,42,0.45) 56%, rgba(15,23,42,0.08) 72%);"
+                ></div>
+                <div
+                    class="absolute inset-0 hidden dark:block"
+                    style="background: linear-gradient(180deg, rgba(15,23,42,0.25) 0%, rgba(15,23,42,0) 30%, rgba(15,23,42,0.55) 100%);"
+                ></div>
+
+                <!-- Fireflies (dark mode only) -->
+                <div class="pointer-events-none absolute inset-0 hidden overflow-hidden dark:block">
+                    <span
+                        v-for="(fly, i) in fireflies"
+                        :key="i"
+                        class="firefly absolute rounded-full"
+                        :style="{
+                            left: fly.left,
+                            top: fly.top,
+                            width: fly.size,
+                            height: fly.size,
+                            animationDuration: fly.duration,
+                            animationDelay: fly.delay,
+                            '--drift-x': fly.driftX,
+                            '--drift-y': fly.driftY,
+                        }"
+                    ></span>
+                </div>
             </div>
 
             <div class="relative mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 sm:pt-14 md:px-10 lg:pb-24">
                 <div class="max-w-xl">
                     <img src="/logo.png" alt="Sacramenta" class="mb-6 h-16 w-auto sm:h-20 lg:h-24" />
 
-                    <h1 class="font-serif text-4xl font-medium leading-[1.1] text-[#3f6470] sm:text-5xl lg:text-6xl">
+                    <h1 class="font-serif text-4xl font-medium leading-[1.1] text-[#3f6470] dark:text-white sm:text-5xl lg:text-6xl">
                         Sacred Moments,<br />Beautifully Managed.
                     </h1>
 
-                    <p class="mt-6 max-w-md text-base leading-relaxed text-[#3f6470]/80 sm:text-lg">
+                    <p class="mt-6 max-w-md text-base leading-relaxed text-[#3f6470]/80 dark:text-slate-300 sm:text-lg">
                         We help churches and parish communities manage their
                         sacred events with ease, devotion, and excellence.
                     </p>
@@ -372,7 +424,7 @@ function closeMobileMenu() {
                         </Link>
                         <a
                             href="#about"
-                            class="inline-flex w-full items-center justify-center gap-2 rounded-full border border-[#3f6470]/30 px-7 py-3.5 text-sm font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:border-[#3f6470] hover:bg-white/50 sm:w-auto"
+                            class="inline-flex w-full items-center justify-center gap-2 rounded-full border border-[#3f6470]/30 px-7 py-3.5 text-sm font-semibold uppercase tracking-[0.12em] text-[#3f6470] dark:border-white/20 dark:text-slate-200 transition hover:border-[#3f6470] hover:bg-white/50 dark:hover:border-white/40 dark:hover:bg-white/10 sm:w-auto"
                         >
                             <svg class="h-3.5 w-3.5 fill-current" viewBox="0 0 12 12"><path d="M2 1.5v9l8-4.5-8-4.5z" /></svg>
                             Learn More
@@ -384,45 +436,45 @@ function closeMobileMenu() {
                             v-for="(feature, i) in features"
                             :key="feature.title"
                             class="flex items-center gap-3"
-                            :class="{ 'sm:border-l sm:border-[#3f6470]/15 sm:pl-9': i > 0 }"
+                            :class="{ 'sm:border-l sm:border-[#3f6470]/15 dark:sm:border-white/10 sm:pl-9': i > 0 }"
                         >
-                            <svg v-if="feature.icon === 'calendar'" class="h-7 w-7 shrink-0 text-[#3f6470]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                            <svg v-if="feature.icon === 'calendar'" class="h-7 w-7 shrink-0 text-[#3f6470] dark:text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
                                 <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
                                 <path d="M3.5 9.5h17M8 3v4M16 3v4" stroke-linecap="round" />
                             </svg>
-                            <svg v-else-if="feature.icon === 'people'" class="h-7 w-7 shrink-0 text-[#3f6470]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                            <svg v-else-if="feature.icon === 'people'" class="h-7 w-7 shrink-0 text-[#3f6470] dark:text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
                                 <circle cx="12" cy="7.5" r="2.6" />
                                 <circle cx="5" cy="9" r="2.1" />
                                 <circle cx="19" cy="9" r="2.1" />
                                 <path d="M6.5 20c0-3.5 2.3-6 5.5-6s5.5 2.5 5.5 6M1.8 19c0-2.7 1.5-4.6 3.6-4.9M22.2 19c0-2.7-1.5-4.6-3.6-4.9" stroke-linecap="round" />
                             </svg>
-                            <svg v-else class="h-7 w-7 shrink-0 text-[#3f6470]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                            <svg v-else class="h-7 w-7 shrink-0 text-[#3f6470] dark:text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
                                 <path d="M12 2.5l2 3h-4l2-3z" stroke-linejoin="round" />
                                 <path d="M12 5.5v3M5 21V11l7-4 7 4v10" stroke-linejoin="round" />
                                 <path d="M9.5 21v-5a2.5 2.5 0 015 0v5" />
                             </svg>
-                            <span class="font-serif text-lg leading-tight text-[#3f6470]">{{ feature.title }}</span>
+                            <span class="font-serif text-lg leading-tight text-[#3f6470] dark:text-white">{{ feature.title }}</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <svg class="relative block w-full text-[#F7F5EC]" viewBox="0 0 1440 60" preserveAspectRatio="none" fill="currentColor">
+            <svg class="relative block w-full text-[#F7F5EC] dark:text-slate-900" viewBox="0 0 1440 60" preserveAspectRatio="none" fill="currentColor">
                 <path d="M0 60L1440 20V60H0Z" />
             </svg>
         </section>
 
         <!-- About -->
-        <section id="about" class="scroll-mt-24 border-t border-[#3f6470]/10 py-20 sm:py-28">
+        <section id="about" class="scroll-mt-24 border-t border-[#3f6470]/10 py-20 sm:py-28 dark:border-white/10">
             <div class="mx-auto max-w-6xl px-4 sm:px-6 md:px-10">
                 <div class="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
                     <div>
                         <span class="text-xs font-semibold uppercase tracking-[0.25em] text-[#8CA089]">About Sacramenta</span>
-                        <p class="mt-3 font-serif text-lg italic text-[#3f6470]/70">&ldquo;Ordinem in Sacris&rdquo; &mdash; Bringing order to sacred duties.</p>
-                        <h2 class="mt-6 font-serif text-3xl font-medium leading-tight text-[#3f6470] sm:text-4xl">
+                        <p class="mt-3 font-serif text-lg italic text-[#3f6470]/70 dark:text-slate-300">&ldquo;Ordinem in Sacris&rdquo; &mdash; Bringing order to sacred duties.</p>
+                        <h2 class="mt-6 font-serif text-3xl font-medium leading-tight text-[#3f6470] dark:text-white sm:text-4xl">
                             A dedicated, admin-only Church Reservation Management System
                         </h2>
-                        <p class="mt-6 max-w-xl text-base leading-relaxed text-[#3f6470]/80 sm:text-lg">
+                        <p class="mt-6 max-w-xl text-base leading-relaxed text-[#3f6470]/80 dark:text-slate-300 sm:text-lg">
                             Sacramenta bridges parish tradition with modern efficiency &mdash; replacing chaotic
                             paper trails with a secure digital ledger for every sacrament, blessing, and Mass,
                             so nothing is ever double-booked or lost.
@@ -443,7 +495,7 @@ function closeMobileMenu() {
                         />
 
                         <div class="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/10">
-                            <div class="flex h-11 w-11 scale-90 items-center justify-center rounded-full bg-white/90 text-[#3f6470] opacity-0 shadow-md transition group-hover:scale-100 group-hover:opacity-100">
+                            <div class="flex h-11 w-11 scale-90 items-center justify-center rounded-full bg-white/90 text-[#3f6470] dark:text-slate-700 opacity-0 shadow-md transition group-hover:scale-100 group-hover:opacity-100">
                                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                                     <circle cx="11" cy="11" r="7" />
                                     <path d="M21 21l-4.3-4.3M11 8v6M8 11h6" stroke-linecap="round" />
@@ -506,7 +558,7 @@ function closeMobileMenu() {
                     <div
                         v-for="pillar in pillars"
                         :key="pillar.title"
-                        class="rounded-xl border border-[#3f6470]/10 bg-white/50 p-4 transition hover:border-[#8CA089]/40 hover:bg-white/80"
+                        class="rounded-xl border border-[#3f6470]/10 bg-white/50 p-4 transition hover:border-[#8CA089]/40 hover:bg-white/80 dark:border-white/10 dark:bg-slate-800/50 dark:hover:bg-slate-800/80"
                     >
                         <div class="flex h-8 w-8 items-center justify-center rounded-full bg-[#8CA089]/15 text-[#8CA089]">
                             <svg v-if="pillar.icon === 'twin'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -526,22 +578,22 @@ function closeMobileMenu() {
                                 <path d="M4 19h16M6 19V9l6-4 6 4v10M10 19v-5h4v5" stroke-linejoin="round" />
                             </svg>
                         </div>
-                        <h3 class="mt-3 font-serif text-sm leading-snug text-[#3f6470] sm:text-base">{{ pillar.title }}</h3>
-                        <p class="mt-1.5 text-xs leading-relaxed text-[#3f6470]/75">{{ pillar.desc }}</p>
+                        <h3 class="mt-3 font-serif text-sm leading-snug text-[#3f6470] dark:text-white sm:text-base">{{ pillar.title }}</h3>
+                        <p class="mt-1.5 text-xs leading-relaxed text-[#3f6470]/75 dark:text-slate-400">{{ pillar.desc }}</p>
                     </div>
                 </div>
             </div>
         </section>
 
         <!-- Services -->
-        <section id="services" class="scroll-mt-24 border-t border-[#3f6470]/10 bg-white/40 py-20 sm:py-28">
+        <section id="services" class="scroll-mt-24 border-t border-[#3f6470]/10 bg-white/40 dark:border-white/10 dark:bg-slate-800/30 py-20 sm:py-28">
             <div class="mx-auto max-w-6xl px-4 sm:px-6 md:px-10">
                 <div class="text-center">
                     <span class="text-xs font-semibold uppercase tracking-[0.25em] text-[#8CA089]">Services Portfolio</span>
-                    <h2 class="mt-3 font-serif text-3xl font-medium leading-tight text-[#3f6470] sm:text-4xl">
+                    <h2 class="mt-3 font-serif text-3xl font-medium leading-tight text-[#3f6470] dark:text-white sm:text-4xl">
                         Every parish workflow, categorized and automated
                     </h2>
-                    <p class="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-[#3f6470]/80">
+                    <p class="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-[#3f6470]/80 dark:text-slate-300">
                         Sacramenta categorizes and automates the unique workflows of various parish services.
                     </p>
                 </div>
@@ -564,17 +616,17 @@ function closeMobileMenu() {
                         <div
                             v-for="(item, i) in carouselItems"
                             :key="item.name"
-                            class="carousel-card absolute left-1/2 top-1/2 w-[260px] cursor-pointer rounded-2xl border border-[#3f6470]/10 bg-[#F7F5EC] p-6 shadow-md transition-all duration-500 ease-out sm:w-[300px]"
+                            class="carousel-card absolute left-1/2 top-1/2 w-[260px] cursor-pointer rounded-2xl border border-[#3f6470]/10 bg-[#F7F5EC] p-6 shadow-md transition-all duration-500 ease-out dark:border-white/10 dark:bg-slate-800 sm:w-[300px]"
                             :style="cardStyle(i)"
                             @click="i !== activeIndex && goTo(i)"
                         >
                             <span class="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8CA089]">
                                 {{ item.group }}
                             </span>
-                            <h4 class="mt-2 font-serif text-base font-semibold text-[#3f6470] sm:text-lg">
+                            <h4 class="mt-2 font-serif text-base font-semibold text-[#3f6470] dark:text-white sm:text-lg">
                                 {{ item.name }}
                             </h4>
-                            <p class="mt-2 text-sm leading-relaxed text-[#3f6470]/75">{{ item.desc }}</p>
+                            <p class="mt-2 text-sm leading-relaxed text-[#3f6470]/75 dark:text-slate-400">{{ item.desc }}</p>
                         </div>
                     </div>
 
@@ -582,7 +634,7 @@ function closeMobileMenu() {
                     <button
                         type="button"
                         aria-label="Previous service"
-                        class="absolute left-0 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-[#3f6470]/15 bg-white/80 text-[#3f6470] shadow-sm transition hover:bg-white sm:flex"
+                        class="absolute left-0 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-[#3f6470]/15 bg-white/80 text-[#3f6470] shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-200 dark:hover:bg-slate-700 sm:flex"
                         @click="prev"
                     >
                         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -592,7 +644,7 @@ function closeMobileMenu() {
                     <button
                         type="button"
                         aria-label="Next service"
-                        class="absolute right-0 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-[#3f6470]/15 bg-white/80 text-[#3f6470] shadow-sm transition hover:bg-white sm:flex"
+                        class="absolute right-0 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-[#3f6470]/15 bg-white/80 text-[#3f6470] shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-200 dark:hover:bg-slate-700 sm:flex"
                         @click="next"
                     >
                         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -608,12 +660,12 @@ function closeMobileMenu() {
                             type="button"
                             :aria-label="'Go to ' + item.name"
                             class="h-2 rounded-full transition-all"
-                            :class="i === activeIndex ? 'w-6 bg-[#8CA089]' : 'w-2 bg-[#3f6470]/25 hover:bg-[#3f6470]/40'"
+                            :class="i === activeIndex ? 'w-6 bg-[#8CA089]' : 'w-2 bg-[#3f6470]/25 hover:bg-[#3f6470]/40 dark:bg-slate-600 dark:hover:bg-slate-500'"
                             @click="goTo(i)"
                         ></button>
                     </div>
 
-                    <p class="mt-4 text-center text-xs uppercase tracking-[0.2em] text-[#3f6470]/40 sm:hidden">
+                    <p class="mt-4 text-center text-xs uppercase tracking-[0.2em] text-[#3f6470]/40 dark:text-slate-500 sm:hidden">
                         Swipe to explore
                     </p>
                 </div>
@@ -621,16 +673,16 @@ function closeMobileMenu() {
         </section>
 
         <!-- Quote -->
-        <section class="border-t border-[#3f6470]/10 py-12 text-center">
-            <p class="mx-auto max-w-2xl px-6 font-serif text-xl italic leading-relaxed text-[#3f6470]">
+        <section class="border-t border-[#3f6470]/10 py-12 text-center dark:border-white/10">
+            <p class="mx-auto max-w-2xl px-6 font-serif text-xl italic leading-relaxed text-[#3f6470] dark:text-slate-200">
                 &ldquo;For where two or three are gathered in my name, there am I among them.&rdquo;
             </p>
-            <p class="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#3f6470]/50">
+            <p class="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#3f6470]/50 dark:text-slate-500">
                 &mdash; Matthew 18:20
             </p>
         </section>
 
-        <footer id="contact" class="scroll-mt-24 border-t border-[#3f6470]/10 bg-white/40 py-6 text-center text-xs text-[#3f6470]/50">
+        <footer id="contact" class="scroll-mt-24 border-t border-[#3f6470]/10 bg-white/40 dark:border-white/10 dark:bg-slate-800/30 py-6 text-center text-xs text-[#3f6470]/50 dark:text-slate-500">
             Sacramenta &middot; Parish Reservation Management
         </footer>
     </div>
@@ -639,6 +691,43 @@ function closeMobileMenu() {
 <style scoped>
 :global(html) {
     scroll-behavior: smooth;
+}
+
+.firefly {
+    background: radial-gradient(circle, rgba(255, 244, 191, 0.95) 0%, rgba(255, 220, 120, 0.55) 45%, rgba(255, 220, 120, 0) 75%);
+    box-shadow: 0 0 6px 2px rgba(255, 220, 120, 0.6);
+    opacity: 0;
+    animation-name: fireflyDrift;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+}
+
+@keyframes fireflyDrift {
+    0% {
+        transform: translate(0, 0) scale(0.8);
+        opacity: 0;
+    }
+    15% {
+        opacity: 1;
+    }
+    50% {
+        transform: translate(var(--drift-x), var(--drift-y)) scale(1.15);
+        opacity: 0.85;
+    }
+    85% {
+        opacity: 1;
+    }
+    100% {
+        transform: translate(0, 0) scale(0.8);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .firefly {
+        animation: none;
+        opacity: 0.6;
+    }
 }
 
 .card-float {

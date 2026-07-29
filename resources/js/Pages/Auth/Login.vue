@@ -30,15 +30,21 @@ const submit = () => {
 </script>
 
 <template>
-    <GuestLayout>
+    <GuestLayout hide-logo>
         <Head title="Log in" />
 
-        <div class="mb-6 text-center">
-            <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[#8CA089]">Welcome back</p>
-            <h1 class="mt-1 font-serif text-2xl font-medium text-[#3f6470]">Sign in to your account</h1>
+        <div class="mb-6 flex flex-col items-center gap-3 text-center">
+            <Link href="/" class="flex flex-col items-center gap-3">
+                <img src="/logo.png" alt="Sacramenta" class="h-16 w-16 object-contain" />
+                <span class="font-serif text-2xl font-medium text-[#3f6470] dark:text-white">Sacramenta</span>
+            </Link>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[#8CA089]">Welcome back</p>
+                <h1 class="mt-1 font-serif text-2xl font-medium text-[#3f6470] dark:text-white">Sign in to your account</h1>
+            </div>
         </div>
 
-        <div v-if="status" class="mb-4 rounded-xl border border-[#c9dcc3] bg-[#E4EDE1] px-4 py-2.5 text-sm font-medium text-[#4f7a4a]">
+        <div v-if="status" class="mb-4 rounded-xl border border-[#c9dcc3] bg-[#E4EDE1] px-4 py-2.5 text-sm font-medium text-[#4f7a4a] dark:border-[#4f7a4a]/40 dark:bg-[#1e2e1e]/70 dark:text-[#c9dcc3]">
             {{ status }}
         </div>
 
@@ -79,13 +85,13 @@ const submit = () => {
             <div class="flex items-center justify-between">
                 <label class="flex items-center gap-2">
                     <Checkbox name="remember" v-model:checked="form.remember" />
-                    <span class="text-sm text-[#3f6470]/70">Remember me</span>
+                    <span class="text-sm text-[#3f6470]/70 dark:text-slate-300">Remember me</span>
                 </label>
 
                 <Link
                     v-if="canResetPassword"
                     :href="route('password.request')"
-                    class="text-sm font-medium text-[#3f6470]/70 underline decoration-[#3f6470]/30 underline-offset-2 hover:text-[#3f6470]"
+                    class="text-sm font-medium text-[#3f6470]/70 underline decoration-[#3f6470]/30 underline-offset-2 hover:text-[#3f6470] dark:text-slate-300 dark:decoration-slate-500 dark:hover:text-white"
                 >
                     Forgot password?
                 </Link>
