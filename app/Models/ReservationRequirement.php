@@ -12,6 +12,8 @@ class ReservationRequirement extends Model
 
     protected $fillable = [
         'reservation_id',
+        'child_index',
+        'child_name',
         'key',
         'label',
         'is_completed',

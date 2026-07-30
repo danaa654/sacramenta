@@ -88,7 +88,7 @@ class Reservation extends Model
     {
         return $this->requirements
             ->where('is_completed', false)
-            ->pluck('label')
+            ->map(fn (ReservationRequirement $r) => $r->child_name ? "{$r->child_name} — {$r->label}" : $r->label)
             ->all();
     }
 

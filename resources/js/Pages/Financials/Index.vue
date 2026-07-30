@@ -272,6 +272,14 @@ function saveEdit(r) {
                                         <Link :href="route('reservations.show', r.id)" class="ml-4 font-medium text-[#3f6470]/60 hover:underline dark:text-slate-400">
                                             View
                                         </Link>
+                                        <a
+                                            :href="route('reservations.receipt', r.id)"
+                                            target="_blank"
+                                            rel="noopener"
+                                            class="ml-4 font-medium text-[#8CA089] hover:underline"
+                                        >
+                                            Print Receipt
+                                        </a>
                                     </td>
                                 </tr>
 

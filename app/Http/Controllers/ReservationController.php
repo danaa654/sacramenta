@@ -105,6 +105,20 @@ class ReservationController extends Controller
         ]);
     }
 
+    /**
+     * Printable Official Receipt for whatever has been recorded against this
+     * reservation's offering/stipend so far (amount_paid, receipt_number,
+     * payment_status, etc.). Plain Blade + window.print() rather than a PDF
+     * library — no extra dependency, and staff can still "Save as PDF" from
+     * the browser's print dialog if they want a file.
+     */
+    public function receipt(Reservation $reservation)
+    {
+        return view('receipts.reservation', [
+            'reservation' => $reservation,
+        ]);
+    }
+
     public function edit(Reservation $reservation): Response
     {
         return Inertia::render('Reservations/Edit', [
@@ -227,6 +241,22 @@ class ReservationController extends Controller
 
         $reservation->status = $validated['status'];
         $reservation->payment_status = $validated['payment_status'];
+
+        // The Financials "Record Payment" drawer always asks for Status and
+        // Amount Paid together, so those two can never drift apart there.
+        // This sidebar only has a Payment dropdown, though — without this,
+        // picking "Paid" here would flip the status flag while silently
+        // leaving amount_paid at 0, showing "Paid" next to a full balance
+        // still outstanding. Auto-fill the amount whenever marking Paid
+        // would otherwise leave it under the offering; never reduce an
+        // amount that's already recorded (e.g. an overpayment).
+        if ($validated['payment_status'] === 'paid') {
+            $reservation->amount_paid = max(
+                (float) $reservation->amount_paid,
+                (float) ($reservation->offering_amount ?? 0)
+            );
+        }
+
         $reservation->save();
 
         if ($validated['status'] === 'confirmed' && ! $wasConfirmed) {
@@ -360,6 +390,7 @@ class ReservationController extends Controller
             'date' => ['required', 'date'],
             'exclude' => ['nullable', 'integer'],
             'chapel' => ['nullable', 'string'],
+            'type' => ['nullable', 'string'],
         ]);
 
         $taken = collect();
@@ -391,9 +422,33 @@ class ReservationController extends Controller
                 ->values();
         }
 
+        // Wedding, Baptism, and Burial all share the single Main Sanctuary
+        // venue, so any confirmed reservation of these three types on the
+        // same date blocks a slot for the others too — same idea as the
+        // per-priest / per-chapel checks above.
+        $takenVenue = collect();
+
+        if (in_array($validated['type'] ?? null, ['wedding', 'baptism', 'burial'], true)) {
+            $mainSanctuaryId = Location::where('name', 'Main Sanctuary')->value('id');
+
+            if ($mainSanctuaryId) {
+                $takenVenue = Reservation::query()
+                    ->where('location_id', $mainSanctuaryId)
+                    ->whereIn('type', ['wedding', 'baptism', 'burial'])
+                    ->where('status', 'confirmed')
+                    ->whereDate('event_date', $validated['date'])
+                    ->whereNotNull('event_time')
+                    ->when($validated['exclude'] ?? null, fn ($q, $excludeId) => $q->where('id', '!=', $excludeId))
+                    ->get()
+                    ->map(fn (Reservation $r) => substr((string) $r->event_time, 0, 5))
+                    ->values();
+            }
+        }
+
         return response()->json([
             'taken' => $taken,
             'takenChapel' => $takenChapel,
+            'takenVenue' => $takenVenue,
         ]);
     }
 
@@ -406,6 +461,28 @@ class ReservationController extends Controller
     protected function seedRequirements(Reservation $reservation): void
     {
         $items = config("reservation_requirements.checklists.{$reservation->type}", []);
+
+        if (empty($items)) {
+            return;
+        }
+
+        if ($reservation->type === 'baptism' && ($reservation->details['baptism_type'] ?? null) === 'group') {
+            $children = $reservation->details['children'] ?? [];
+
+            foreach ($children as $index => $child) {
+                foreach ($items as $item) {
+                    $reservation->requirements()->create([
+                        'child_index' => $index,
+                        'child_name' => $child['child_name'] ?? "Child ".($index + 1),
+                        'key' => $item['key'],
+                        'label' => $item['label'],
+                        'is_completed' => false,
+                    ]);
+                }
+            }
+
+            return;
+        }
 
         foreach ($items as $item) {
             $reservation->requirements()->create([

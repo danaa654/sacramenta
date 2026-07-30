@@ -12,9 +12,31 @@ use Illuminate\Validation\Validator;
 
 class StoreReservationRequest extends FormRequest
 {
+    /**
+     * Wedding, Baptism, and Burial only ever happen at the parish's Main
+     * Sanctuary — there's no venue picker for these types in the form
+     * anymore, so we assign it here rather than relying on the UI. This
+     * makes the existing venue-conflict check (findLocationConflict,
+     * already used for confirm-time and priest-style double-booking
+     * prevention) apply to these types automatically, the same way the
+     * priest conflict check already does.
+     */
+    protected const MAIN_SANCTUARY_TYPES = ['wedding', 'baptism', 'burial'];
+
     public function authorize(): bool
     {
         return true;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (in_array($this->input('type'), self::MAIN_SANCTUARY_TYPES, true) && !$this->input('location_id')) {
+            $mainSanctuary = Location::where('name', 'Main Sanctuary')->first();
+
+            if ($mainSanctuary) {
+                $this->merge(['location_id' => $mainSanctuary->id]);
+            }
+        }
     }
 
     public function rules(): array
@@ -161,7 +183,15 @@ class StoreReservationRequest extends FormRequest
                 'details.marriage_banns' => ['boolean'],
                 'details.rehearsal_date' => ['nullable', 'date'],
             ],
-            'baptism' => [
+            'baptism' => $this->input('details.baptism_type') === 'group' ? [
+                'details.baptism_type' => ['required', Rule::in(['individual', 'group'])],
+                'details.children' => ['required', 'array', 'min:1'],
+                'details.children.*.child_name' => ['required', 'string', 'max:255'],
+                'details.children.*.father_name' => ['required', 'string', 'max:255'],
+                'details.children.*.mother_maiden_name' => ['required', 'string', 'max:255'],
+                'details.children.*.godparents' => ['nullable', 'array'],
+                'details.children.*.godparents.*.name' => ['required_with:details.children.*.godparents', 'string', 'max:255'],
+            ] : [
                 'details.child_name' => ['required', 'string', 'max:255'],
                 'details.father_name' => ['required', 'string', 'max:255'],
                 'details.mother_maiden_name' => ['required', 'string', 'max:255'],
@@ -173,11 +203,7 @@ class StoreReservationRequest extends FormRequest
                 'details.deceased_name' => ['required', 'string', 'max:255'],
                 'details.age' => ['nullable', 'integer', 'min:0', 'max:150'],
                 'details.cause_of_death' => ['nullable', 'string', 'max:255'],
-                'details.service_type' => ['required', Rule::in(['funeral_mass', 'funeral_service'])],
-                'details.scripture_readings' => ['nullable', 'string', 'max:1000'],
-                'details.songs' => ['nullable', 'string', 'max:1000'],
-                'details.has_eulogy' => ['boolean'],
-                'details.committal_type' => ['nullable', Rule::in(['cemetery', 'crematorium'])],
+                'details.service_type' => ['required', Rule::in(['funeral_mass'])],
                 'details.cemetery' => ['nullable', 'string', 'max:255'],
             ],
             'pamisa_sa_kalag' => [

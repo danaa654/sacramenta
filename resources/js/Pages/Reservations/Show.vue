@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps({
     reservation: {
@@ -100,9 +100,13 @@ function detailValue(key, value) {
     return detailValueLabels[key]?.[value] ?? (value || '—');
 }
 
-const detailEntries = Object.entries(props.reservation.details ?? {}).filter(
-    ([key]) => key !== 'godparents'
-);
+const isGroupBaptism = props.reservation.type === 'baptism' && props.reservation.details?.baptism_type === 'group';
+
+const detailEntries = Object.entries(props.reservation.details ?? {}).filter(([key]) => {
+    if (key === 'godparents') return false;
+    if (isGroupBaptism && ['children', 'child_name', 'father_name', 'mother_maiden_name'].includes(key)) return false;
+    return true;
+});
 
 // ---- Requirements checklist ----
 
@@ -125,6 +129,44 @@ const allRequirementsComplete = computed(
 function requirementLabel(id) {
     return props.reservation.requirements.find((r) => r.id === id)?.label ?? '';
 }
+
+// Which child card (by index into reservation.details.children) is currently
+// expanded to show its own checklist. Null = none expanded.
+const expandedChildIndex = ref(null);
+
+function toggleChild(ci) {
+    expandedChildIndex.value = expandedChildIndex.value === ci ? null : ci;
+}
+
+function childRequirementItems(ci) {
+    return checklistForm.items.filter((item) => {
+        const raw = props.reservation.requirements.find((r) => r.id === item.id);
+        return raw?.child_index === ci;
+    });
+}
+
+function childRequirementsCompleted(ci) {
+    return childRequirementItems(ci).filter((i) => i.is_completed).length;
+}
+
+// Groups checklist items by child_index for group/community baptisms, so
+// each child gets their own labeled checklist card instead of one flat list.
+const requirementGroups = computed(() => {
+    const byChild = new Map();
+
+    for (const item of checklistForm.items) {
+        const raw = props.reservation.requirements.find((r) => r.id === item.id);
+        const groupKey = raw?.child_index ?? null;
+        const groupName = raw?.child_name ?? null;
+
+        if (!byChild.has(groupKey)) {
+            byChild.set(groupKey, { name: groupName, items: [] });
+        }
+        byChild.get(groupKey).items.push(item);
+    }
+
+    return Array.from(byChild.values());
+});
 
 function saveChecklist() {
     checklistForm.patch(route('reservations.requirements.update', props.reservation.id), {
@@ -319,11 +361,91 @@ const confirmTooltip = computed(() => {
                             </li>
                         </ul>
                     </div>
+
+                    <div v-if="isGroupBaptism && reservation.details?.children?.length" class="mt-5 space-y-4">
+                        <dt class="field-label">Children</dt>
+                        <div
+                            v-for="(child, ci) in reservation.details.children"
+                            :key="ci"
+                            class="rounded-xl border border-[#3f6470]/15 p-4"
+                        >
+                            <button
+                                type="button"
+                                @click="toggleChild(ci)"
+                                class="flex w-full items-center justify-between text-left"
+                            >
+                                <div>
+                                    <p class="text-sm font-semibold text-[#3f6470]">{{ child.child_name || `Child ${ci + 1}` }}</p>
+                                    <p class="mt-1 text-sm text-[#2f4a4a]">Father: {{ child.father_name || '—' }}</p>
+                                    <p class="text-sm text-[#2f4a4a]">Mother: {{ child.mother_maiden_name || '—' }}</p>
+                                    <div v-if="child.godparents?.length" class="mt-2">
+                                        <p class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60">Godparents</p>
+                                        <ul class="mt-1 space-y-0.5">
+                                            <li v-for="(gp, gi) in child.godparents" :key="gi" class="text-sm text-[#2f4a4a]">{{ gp.name }}</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="flex shrink-0 items-center gap-2 pl-3">
+                                    <span
+                                        v-if="childRequirementItems(ci).length"
+                                        class="whitespace-nowrap rounded-full border border-[#8CA089]/30 bg-[#8CA089]/10 px-2.5 py-1 text-xs font-semibold text-[#3f6470]"
+                                    >
+                                        {{ childRequirementsCompleted(ci) }} of {{ childRequirementItems(ci).length }} requirements
+                                    </span>
+                                    <svg
+                                        class="h-4 w-4 shrink-0 text-[#3f6470]/50 transition-transform"
+                                        :class="{ 'rotate-180': expandedChildIndex === ci }"
+                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    >
+                                        <path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" />
+                                    </svg>
+                                </div>
+                            </button>
+
+                            <div v-if="expandedChildIndex === ci && childRequirementItems(ci).length" class="mt-4 space-y-3 border-t border-[#3f6470]/10 pt-4">
+                                <div
+                                    v-for="item in childRequirementItems(ci)"
+                                    :key="item.id"
+                                    class="rounded-xl border border-[#3f6470]/10 bg-white/70 p-4"
+                                >
+                                    <label class="flex items-start gap-3 text-sm text-[#2f4a4a]">
+                                        <input v-model="item.is_completed" type="checkbox" class="checkbox-input mt-0.5" />
+                                        <span class="font-medium">{{ requirementLabel(item.id) }}</span>
+                                    </label>
+                                    <input
+                                        v-model="item.note"
+                                        type="text"
+                                        placeholder="Optional note"
+                                        class="field-input mt-2 text-xs"
+                                    />
+                                </div>
+                                <div class="flex justify-end">
+                                    <button
+                                        type="button"
+                                        @click="saveChecklist"
+                                        :disabled="checklistForm.processing"
+                                        class="rounded-full border border-[#3f6470]/20 px-5 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        Save Checklist
+                                    </button>
+                                </div>
+                            </div>
+                            <p
+                                v-else-if="expandedChildIndex === ci && !childRequirementItems(ci).length && reservation.requirements?.length"
+                                class="mt-4 border-t border-[#3f6470]/10 pt-4 text-xs text-amber-700"
+                            >
+                                This reservation's checklist hasn't been split per child yet — run
+                                <code class="rounded bg-amber-50 px-1 py-0.5">php artisan reservations:backfill-group-baptism-requirements</code>
+                                to fix older reservations.
+                            </p>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Requirements checklist -->
+                <!-- Requirements checklist (shared, non-grouped reservations only —
+                     group/community baptisms show their checklist per-child above) -->
                 <div
-                    v-if="reservation.requirements && reservation.requirements.length"
+                    v-if="!isGroupBaptism && reservation.requirements && reservation.requirements.length"
                     class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm"
                 >
                     <div class="flex items-center justify-between">
@@ -340,26 +462,33 @@ const confirmTooltip = computed(() => {
                         ></div>
                     </div>
 
-                    <div class="mt-5 space-y-4">
-                        <div
-                            v-for="item in checklistForm.items"
-                            :key="item.id"
-                            class="rounded-xl border border-[#3f6470]/10 bg-white/70 p-4"
-                        >
-                            <label class="flex items-start gap-3 text-sm text-[#2f4a4a]">
-                                <input
-                                    v-model="item.is_completed"
-                                    type="checkbox"
-                                    class="checkbox-input mt-0.5"
-                                />
-                                <span class="font-medium">{{ requirementLabel(item.id) }}</span>
-                            </label>
-                            <input
-                                v-model="item.note"
-                                type="text"
-                                placeholder="Optional note"
-                                class="field-input mt-2 text-xs"
-                            />
+                    <div class="mt-5 space-y-6">
+                        <div v-for="group in requirementGroups" :key="group.name ?? 'shared'">
+                            <h4 v-if="group.name" class="mb-2 text-sm font-semibold text-[#3f6470]">
+                                {{ group.name }}
+                            </h4>
+                            <div class="space-y-4">
+                                <div
+                                    v-for="item in group.items"
+                                    :key="item.id"
+                                    class="rounded-xl border border-[#3f6470]/10 bg-white/70 p-4"
+                                >
+                                    <label class="flex items-start gap-3 text-sm text-[#2f4a4a]">
+                                        <input
+                                            v-model="item.is_completed"
+                                            type="checkbox"
+                                            class="checkbox-input mt-0.5"
+                                        />
+                                        <span class="font-medium">{{ requirementLabel(item.id) }}</span>
+                                    </label>
+                                    <input
+                                        v-model="item.note"
+                                        type="text"
+                                        placeholder="Optional note"
+                                        class="field-input mt-2 text-xs"
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -476,6 +605,9 @@ const confirmTooltip = computed(() => {
                                         {{ opt.label }}
                                     </option>
                                 </select>
+                                <p v-if="actionsForm.payment_status === 'paid'" class="mt-1.5 text-xs text-[#3f6470]/50">
+                                    Marking this Paid records the full offering amount. For a partial amount or O.R. number, use Record Payment on the Financials page instead.
+                                </p>
                             </div>
 
                             <p v-if="actionsForm.errors.status" class="text-sm text-red-600">

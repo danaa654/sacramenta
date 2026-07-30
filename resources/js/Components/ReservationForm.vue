@@ -3,6 +3,25 @@ import { computed, ref, watch } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import axios from 'axios';
 
+// Auto-uppercases text as the user types (used on person-name fields only).
+// Runs in the capture phase so the value is already uppercased before
+// v-model's own input listener reads it — the model (and what gets saved)
+// is uppercase, not just the on-screen display. Cursor position is
+// restored explicitly so typing never jumps.
+const vUppercase = {
+    mounted(el) {
+        el.addEventListener('input', () => {
+            const upper = el.value.toLocaleUpperCase();
+            if (el.value !== upper) {
+                const start = el.selectionStart;
+                const end = el.selectionEnd;
+                el.value = upper;
+                el.setSelectionRange(start, end);
+            }
+        }, true);
+    },
+};
+
 const props = defineProps({
     priests: {
         type: Array,
@@ -132,6 +151,10 @@ const timeSlots = (() => {
     return slots;
 })();
 
+function blankBaptismChild() {
+    return { child_name: '', father_name: '', mother_maiden_name: '', godparents: [{ name: '' }] };
+}
+
 function defaultDetailsFor(type) {
     switch (type) {
         case 'wedding':
@@ -144,16 +167,20 @@ function defaultDetailsFor(type) {
                 rehearsal_date: '',
             };
         case 'baptism':
-            return { child_name: '', father_name: '', mother_maiden_name: '', baptism_type: 'individual', godparents: [{ name: '' }] };
+            return {
+                child_name: '',
+                father_name: '',
+                mother_maiden_name: '',
+                baptism_type: 'individual',
+                godparents: [{ name: '' }],
+                children: [blankBaptismChild()],
+            };
         case 'burial':
             return {
                 deceased_name: '',
                 age: '',
                 cause_of_death: '',
                 service_type: 'funeral_mass',
-                scripture_readings: '',
-                songs: '',
-                has_eulogy: false,
                 committal_type: 'cemetery',
                 cemetery: '',
             };
@@ -161,10 +188,11 @@ function defaultDetailsFor(type) {
             return {
                 booking_mode: 'individual',
                 child_name: '',
+                parent_guardian_name: '',
                 parish_or_school_program: '',
                 school_name: '',
-                school_contact_person: '',
                 communicant_count: '',
+                students: [{ name: '' }],
             };
         case 'confirmation':
             return { confirmand_name: '', confirmation_name: '', sponsor_name: '' };
@@ -181,7 +209,7 @@ function defaultDetailsFor(type) {
         case 'special_intention':
             return { intention: '' };
         case 'pamisa_sa_kalag':
-            return { names: '' };
+            return { names: [''], mass_schedule_id: '', mass_type: '' };
         case 'school_mass':
             return {
                 school_name: '',
@@ -205,8 +233,15 @@ function initialDetails() {
 
     const details = { ...(props.reservation.details ?? {}) };
 
-    if (props.reservation.type === 'pamisa_sa_kalag' && Array.isArray(details.names)) {
-        details.names = details.names.join('\n');
+    if (props.reservation.type === 'pamisa_sa_kalag') {
+        if (typeof details.names === 'string') {
+            details.names = details.names.split(/\r?\n/).map((n) => n.trim()).filter(Boolean);
+        }
+        if (!Array.isArray(details.names) || !details.names.length) {
+            details.names = [''];
+        }
+        details.mass_schedule_id ??= '';
+        details.mass_type ??= '';
     }
 
     if (props.reservation.type === 'wedding') {
@@ -218,13 +253,23 @@ function initialDetails() {
             details.godparents = [{ name: '' }];
         }
         details.baptism_type ??= 'individual';
+
+        if (!Array.isArray(details.children) || !details.children.length) {
+            details.children = [blankBaptismChild()];
+        } else {
+            details.children = details.children.map((child) => ({
+                child_name: child.child_name ?? '',
+                father_name: child.father_name ?? '',
+                mother_maiden_name: child.mother_maiden_name ?? '',
+                godparents: Array.isArray(child.godparents) && child.godparents.length
+                    ? child.godparents
+                    : [{ name: '' }],
+            }));
+        }
     }
 
     if (props.reservation.type === 'burial') {
         details.service_type ??= 'funeral_mass';
-        details.scripture_readings ??= '';
-        details.songs ??= '';
-        details.has_eulogy ??= false;
         details.committal_type ??= 'cemetery';
     }
 
@@ -241,6 +286,10 @@ function initialDetails() {
 
     if (props.reservation.type === 'first_communion') {
         details.booking_mode ??= 'individual';
+        details.parent_guardian_name ??= '';
+        details.students = Array.isArray(details.students) && details.students.length
+            ? details.students.map((s) => ({ name: s?.name ?? '' }))
+            : [{ name: '' }];
     }
 
     return details;
@@ -277,6 +326,181 @@ function removeGodparent(index) {
     }
 }
 
+function addChild() {
+    form.details.children.push(blankBaptismChild());
+}
+
+function removeChild(index) {
+    form.details.children.splice(index, 1);
+    if (!form.details.children.length) {
+        form.details.children.push(blankBaptismChild());
+    }
+}
+
+function addChildGodparent(childIndex) {
+    form.details.children[childIndex].godparents.push({ name: '' });
+}
+
+function removeChildGodparent(childIndex, gpIndex) {
+    const godparents = form.details.children[childIndex].godparents;
+    godparents.splice(gpIndex, 1);
+    if (!godparents.length) {
+        godparents.push({ name: '' });
+    }
+}
+
+// --- First Communion: School / Group Booking student list ---
+const csvImportMessage = ref('');
+const csvImportError = ref('');
+
+function addStudent() {
+    form.details.students.push({ name: '' });
+    csvImportMessage.value = '';
+}
+
+function removeStudent(index) {
+    form.details.students.splice(index, 1);
+    if (!form.details.students.length) {
+        form.details.students.push({ name: '' });
+    }
+    csvImportMessage.value = '';
+}
+
+const hasStudentEntries = computed(() => form.details.students.some((s) => s.name && s.name.trim()));
+
+const studentCountMismatchWarning = computed(() => {
+    if (form.type !== 'first_communion' || form.details.booking_mode !== 'school_batch') return null;
+    const expected = Number(form.details.communicant_count);
+    const imported = form.details.students.filter((s) => s.name && s.name.trim()).length;
+    if (!expected || !imported) return null;
+    if (expected === imported) return null;
+    return `The imported student count does not match the expected number. Expected: ${expected}, Imported: ${imported}.`;
+});
+
+function downloadStudentCsvTemplate() {
+    const csvContent = "Child's Full Name\nJUAN DELA CRUZ\nMARIA SANTOS\nPEDRO REYES\n";
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'first-communion-student-list-template.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+function handleStudentCsvImport(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    csvImportMessage.value = '';
+    csvImportError.value = '';
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        const text = String(reader.result ?? '');
+        const rows = text
+            .split(/\r?\n/)
+            .map((line) => line.split(',')[0]?.trim())
+            .filter(Boolean);
+
+        // Drop the header row if present (e.g. "Child's Full Name").
+        if (rows.length && /^child.?s\s+full\s+name$/i.test(rows[0].replace(/["']/g, ''))) {
+            rows.shift();
+        }
+
+        const names = rows.map((name) => name.replace(/["']/g, '').trim().toLocaleUpperCase()).filter(Boolean);
+
+        if (!names.length) {
+            csvImportError.value = "Unable to import the file. Please use the downloaded template and ensure each student's name is entered on a separate row.";
+            event.target.value = '';
+            return;
+        }
+
+        const existing = form.details.students.filter((s) => s.name && s.name.trim());
+        form.details.students = [...existing, ...names.map((name) => ({ name }))];
+        csvImportMessage.value = `✓ ${names.length} student${names.length === 1 ? '' : 's'} imported successfully.`;
+        event.target.value = '';
+    };
+    reader.onerror = () => {
+        csvImportError.value = "Unable to import the file. Please use the downloaded template and ensure each student's name is entered on a separate row.";
+        event.target.value = '';
+    };
+    reader.readAsText(file);
+}
+
+// --- Pamisa sa Kalag: dynamic Names of the Deceased list ---
+const deceasedCsvImportMessage = ref('');
+const deceasedCsvImportError = ref('');
+
+function addDeceasedName() {
+    form.details.names.push('');
+    deceasedCsvImportMessage.value = '';
+}
+
+function removeDeceasedName(index) {
+    form.details.names.splice(index, 1);
+    if (!form.details.names.length) {
+        form.details.names.push('');
+    }
+    deceasedCsvImportMessage.value = '';
+}
+
+const totalDeceasedNames = computed(() => form.details.names.filter((n) => n && n.trim()).length);
+
+function downloadDeceasedCsvTemplate() {
+    const csvContent = 'Name of the Deceased\nJUAN DELA CRUZ\nMARIA SANTOS\nPEDRO REYES\n';
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'pamisa-sa-kalag-name-list-template.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+function handleDeceasedCsvImport(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    deceasedCsvImportMessage.value = '';
+    deceasedCsvImportError.value = '';
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        const text = String(reader.result ?? '');
+        const rows = text
+            .split(/\r?\n/)
+            .map((line) => line.split(',')[0]?.trim())
+            .filter(Boolean);
+
+        if (rows.length && /^name\s+of\s+the\s+deceased$/i.test(rows[0].replace(/["']/g, ''))) {
+            rows.shift();
+        }
+
+        const names = rows.map((name) => name.replace(/["']/g, '').trim().toLocaleUpperCase()).filter(Boolean);
+
+        if (!names.length) {
+            deceasedCsvImportError.value = 'Unable to import the file. Please use the downloaded template and ensure each name is entered on a separate row.';
+            event.target.value = '';
+            return;
+        }
+
+        const existing = form.details.names.filter((n) => n && n.trim());
+        form.details.names = [...existing, ...names];
+        deceasedCsvImportMessage.value = `✓ ${names.length} name${names.length === 1 ? '' : 's'} imported successfully.`;
+        event.target.value = '';
+    };
+    reader.onerror = () => {
+        deceasedCsvImportError.value = 'Unable to import the file. Please use the downloaded template and ensure each name is entered on a separate row.';
+        event.target.value = '';
+    };
+    reader.readAsText(file);
+}
+
 // Helper: next First Friday of the month, purely informational for School Mass recurring events.
 const nextFirstFriday = computed(() => {
     const now = new Date();
@@ -293,14 +517,18 @@ const nextFirstFriday = computed(() => {
 
 const takenSlots = ref([]);
 const takenChapelSlots = ref([]);
+const takenVenueSlots = ref([]);
 const loadingAvailability = ref(false);
+const ceremonyTypeInfoOpen = ref(false);
 
 async function refreshAvailability() {
     const chapel = form.type === 'chapel_mass' ? form.details.chapel : null;
+    const usesMainSanctuary = ['wedding', 'baptism', 'burial'].includes(form.type);
 
-    if (!form.event_date || (!form.priest_id && !chapel)) {
+    if (!form.event_date || (!form.priest_id && !chapel && !usesMainSanctuary)) {
         takenSlots.value = [];
         takenChapelSlots.value = [];
+        takenVenueSlots.value = [];
         return;
     }
 
@@ -312,29 +540,32 @@ async function refreshAvailability() {
                 priest_id: form.priest_id || undefined,
                 date: form.event_date,
                 chapel: chapel || undefined,
+                type: usesMainSanctuary ? form.type : undefined,
                 exclude: props.reservation?.id ?? undefined,
             },
         });
         takenSlots.value = data.taken ?? [];
         takenChapelSlots.value = data.takenChapel ?? [];
+        takenVenueSlots.value = data.takenVenue ?? [];
     } catch (e) {
         // If the availability check fails, don't block the form — the
         // server-side conflict check on submit is still authoritative.
         takenSlots.value = [];
         takenChapelSlots.value = [];
+        takenVenueSlots.value = [];
     } finally {
         loadingAvailability.value = false;
     }
 }
 
 watch(
-    () => [form.priest_id, form.event_date, form.type === 'chapel_mass' ? form.details.chapel : null],
+    () => [form.priest_id, form.event_date, form.type, form.type === 'chapel_mass' ? form.details.chapel : null],
     refreshAvailability,
     { immediate: true }
 );
 
 function isSlotTaken(value) {
-    return takenSlots.value.includes(value) || takenChapelSlots.value.includes(value);
+    return takenSlots.value.includes(value) || takenChapelSlots.value.includes(value) || takenVenueSlots.value.includes(value);
 }
 
 const conflictWarning = computed(() => {
@@ -348,6 +579,10 @@ const conflictWarning = computed(() => {
         return 'This chapel already has a confirmed Mass at this time — please pick another slot.';
     }
 
+    if (takenVenueSlots.value.includes(form.event_time)) {
+        return 'The Main Sanctuary already has a confirmed Wedding, Baptism, or Burial at this time — please pick another slot.';
+    }
+
     return null;
 });
 
@@ -358,6 +593,101 @@ function submit() {
         form.post(route('reservations.store'));
     }
 }
+
+// --- Pamisa sa Kalag: Mass Date -> Mass Schedule dependent dropdown ---
+// Pulls from a dedicated Mass Schedule Management endpoint once that module
+// exists (route: reservations.mass-schedules?date=YYYY-MM-DD). Until then,
+// falls back to a placeholder daily schedule so the workflow is usable —
+// swap in the real endpoint and this fallback can be removed.
+const massSchedules = ref([]);
+const loadingMassSchedules = ref(false);
+const massScheduleLoadFailed = ref(false);
+
+function fallbackMassSchedulesFor(date) {
+    if (!date) return [];
+    const base = [
+        { start_time: '06:00', mass_type: 'Daily Mass' },
+        { start_time: '08:00', mass_type: 'Daily Mass' },
+        { start_time: '10:00', mass_type: 'Daily Mass' },
+        { start_time: '17:00', mass_type: 'Anticipated Mass' },
+        { start_time: '18:30', mass_type: 'Daily Mass' },
+    ];
+    return base.map((s, i) => ({
+        id: `${date}-${s.start_time}`,
+        date,
+        start_time: s.start_time,
+        mass_type: s.mass_type,
+        label: `${formatTimeLabel(s.start_time)} — ${s.mass_type}`,
+    }));
+}
+
+function formatTimeLabel(hhmm) {
+    const [h, m] = hhmm.split(':').map(Number);
+    const hour12 = ((h + 11) % 12) + 1;
+    const suffix = h >= 12 ? 'PM' : 'AM';
+    return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
+}
+
+async function loadMassSchedules(date) {
+    if (!date) {
+        massSchedules.value = [];
+        return;
+    }
+    loadingMassSchedules.value = true;
+    massScheduleLoadFailed.value = false;
+    try {
+        const { data } = await axios.get(route('reservations.mass-schedules'), { params: { date } });
+        massSchedules.value = (data.schedules ?? []).map((s) => ({
+            ...s,
+            label: s.label ?? `${formatTimeLabel(s.start_time)}${s.mass_type ? ` — ${s.mass_type}` : ''}`,
+        }));
+    } catch (e) {
+        // The Mass Schedule Management module isn't wired up yet (or the
+        // request failed) — fall back to a placeholder schedule so the form
+        // still works. Remove this once the real endpoint is in place.
+        massScheduleLoadFailed.value = true;
+        massSchedules.value = fallbackMassSchedulesFor(date);
+    } finally {
+        loadingMassSchedules.value = false;
+    }
+}
+
+watch(
+    () => [form.type, form.event_date],
+    ([type, date], oldVal) => {
+        if (type !== 'pamisa_sa_kalag') return;
+        const [oldType, oldDate] = oldVal ?? [];
+        if (type !== oldType || date !== oldDate) {
+            if (date !== oldDate) {
+                form.details.mass_schedule_id = '';
+                form.event_time = '';
+            }
+            loadMassSchedules(date);
+        }
+    },
+    { immediate: true }
+);
+
+watch(
+    () => form.details.mass_schedule_id,
+    (id) => {
+        if (form.type !== 'pamisa_sa_kalag') return;
+        const schedule = massSchedules.value.find((s) => String(s.id) === String(id));
+        if (schedule) {
+            form.event_time = schedule.start_time;
+            form.details.mass_type = schedule.mass_type ?? '';
+        } else {
+            form.event_time = '';
+            form.details.mass_type = '';
+        }
+    }
+);
+
+const massScheduleRequiredButMissing = computed(() => {
+    if (form.type !== 'pamisa_sa_kalag') return false;
+    return !form.details.mass_schedule_id;
+});
+
 </script>
 
 <template>
@@ -399,12 +729,12 @@ function submit() {
 
         <!-- Global fields -->
         <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
-            <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-white">Primary Contact &amp; Schedule</h3>
+            <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-white">Reservation Information</h3>
 
             <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
-                    <label class="field-label">Contact Person Name</label>
-                    <input v-model="form.contact_name" type="text" class="field-input" placeholder="Full name" />
+                    <label class="field-label">Contact Person</label>
+                    <input v-model="form.contact_name" v-uppercase type="text" class="field-input" placeholder="Full name" />
                     <p v-if="form.errors.contact_name" class="field-error">{{ form.errors.contact_name }}</p>
                 </div>
 
@@ -415,7 +745,7 @@ function submit() {
                 </div>
 
                 <div>
-                    <label class="field-label">Email (optional)</label>
+                    <label class="field-label">Email Address (Optional)</label>
                     <input v-model="form.contact_email" type="email" class="field-input" placeholder="name@example.com" />
                     <p v-if="form.errors.contact_email" class="field-error">{{ form.errors.contact_email }}</p>
                     <p class="mt-1 text-xs text-[#3f6470]/50 dark:text-slate-500">Used to send a confirmation email once this reservation is confirmed.</p>
@@ -423,19 +753,45 @@ function submit() {
 
                 <div class="sm:col-span-2">
                     <label class="field-label">Address</label>
-                    <input v-model="form.contact_address" type="text" class="field-input" placeholder="Street, Barangay, City" />
+                    <input v-model="form.contact_address" v-uppercase type="text" class="field-input" placeholder="Street, Barangay, City" />
                     <p v-if="form.errors.contact_address" class="field-error">{{ form.errors.contact_address }}</p>
                 </div>
 
                 <div>
-                    <label class="field-label">Date</label>
+                    <label class="field-label">{{ form.type === 'pamisa_sa_kalag' ? 'Mass Date' : 'Reservation Date' }}</label>
                     <input v-model="form.event_date" type="date" class="field-input" :min="isEdit ? undefined : todayStr" />
                     <p v-if="form.errors.event_date" class="field-error">{{ form.errors.event_date }}</p>
                 </div>
 
-                <div>
+                <div v-if="form.type === 'pamisa_sa_kalag'">
                     <label class="field-label">
-                        Time Slot
+                        Mass Schedule
+                        <span v-if="loadingMassSchedules" class="ml-1 normal-case text-[#3f6470]/40 dark:text-slate-500">(loading schedules…)</span>
+                    </label>
+                    <select
+                        v-model="form.details.mass_schedule_id"
+                        class="field-input"
+                        :disabled="!form.event_date || loadingMassSchedules"
+                    >
+                        <option value="">{{ !form.event_date ? 'Select a Mass Date first' : 'Select a Mass schedule' }}</option>
+                        <option v-for="schedule in massSchedules" :key="schedule.id" :value="schedule.id">
+                            {{ schedule.label }}
+                        </option>
+                    </select>
+                    <p v-if="form.errors.event_time || form.errors['details.mass_schedule_id']" class="field-error">
+                        {{ form.errors.event_time || form.errors['details.mass_schedule_id'] }}
+                    </p>
+                    <p v-else-if="form.event_date && !loadingMassSchedules && !massSchedules.length" class="mt-1.5 text-xs text-[#3f6470]/60 dark:text-slate-400">
+                        No Mass schedules are available for the selected date.
+                    </p>
+                    <p v-else-if="!form.event_date" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
+                        Select a Mass Date first.
+                    </p>
+                </div>
+
+                <div v-else>
+                    <label class="field-label">
+                        Reservation Time
                         <span v-if="loadingAvailability" class="ml-1 normal-case text-[#3f6470]/40 dark:text-slate-500">(checking availability…)</span>
                     </label>
                     <select v-model="form.event_time" class="field-input">
@@ -461,27 +817,20 @@ function submit() {
                     </p>
                 </div>
 
-                <div>
+                <div v-if="form.type !== 'pamisa_sa_kalag'">
                     <label class="field-label">Assigned Priest</label>
                     <select v-model="form.priest_id" class="field-input">
                         <option value="">Unassigned</option>
                         <option v-for="priest in priests" :key="priest.id" :value="priest.id">{{ priest.name }}</option>
                     </select>
                     <p v-if="form.errors.priest_id" class="field-error">{{ form.errors.priest_id }}</p>
+                    <p v-if="['wedding', 'baptism', 'burial'].includes(form.type)" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
+                        Held at the Main Sanctuary — another confirmed Wedding, Baptism, or Burial at the same time will be blocked, same as a priest double-booking.
+                    </p>
                 </div>
 
                 <div>
-                    <label class="field-label">Venue</label>
-                    <select v-model="form.location_id" class="field-input">
-                        <option value="">Unassigned</option>
-                        <option v-for="location in locations" :key="location.id" :value="location.id">{{ location.name }}</option>
-                    </select>
-                    <p v-if="form.errors.location_id" class="field-error">{{ form.errors.location_id }}</p>
-                    <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">Used to block double-booking the same room at the same time.</p>
-                </div>
-
-                <div>
-                    <label class="field-label">Offering Amount (optional)</label>
+                    <label class="field-label">{{ form.type === 'pamisa_sa_kalag' ? 'Mass Offering / Donation (Optional)' : 'Offering / Donation (Optional)' }}</label>
                     <input v-model="form.offering_amount" type="number" min="0" step="0.01" class="field-input" placeholder="0.00" />
                     <p v-if="form.errors.offering_amount" class="field-error">{{ form.errors.offering_amount }}</p>
                 </div>
@@ -497,31 +846,68 @@ function submit() {
             <!-- Wedding -->
             <div v-if="form.type === 'wedding'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
-                    <label class="field-label">Groom's Name</label>
-                    <input v-model="form.details.groom_name" type="text" class="field-input" />
+                    <label class="field-label">Groom's Full Name</label>
+                    <input v-model="form.details.groom_name" v-uppercase type="text" class="field-input" />
                     <p v-if="form.errors['details.groom_name']" class="field-error">{{ form.errors['details.groom_name'] }}</p>
                 </div>
                 <div>
-                    <label class="field-label">Bride's Name</label>
-                    <input v-model="form.details.bride_name" type="text" class="field-input" />
+                    <label class="field-label">Bride's Full Name</label>
+                    <input v-model="form.details.bride_name" v-uppercase type="text" class="field-input" />
                     <p v-if="form.errors['details.bride_name']" class="field-error">{{ form.errors['details.bride_name'] }}</p>
                 </div>
 
                 <div class="sm:col-span-2">
-                    <label class="field-label">Ceremony Type</label>
+                    <label class="field-label inline-flex items-center gap-1.5">
+                        Ceremony Type
+                        <span class="group/tooltip relative inline-flex">
+                            <button
+                                type="button"
+                                class="flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold leading-none text-[#3f6470]/60 ring-1 ring-inset ring-[#3f6470]/25 transition hover:bg-[#3f6470]/10 hover:text-[#3f6470] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3f6470]/50 dark:text-slate-400 dark:ring-white/20 dark:hover:bg-white/10 dark:hover:text-white"
+                                @click="ceremonyTypeInfoOpen = !ceremonyTypeInfoOpen"
+                                aria-label="Ceremony Type information"
+                            >ⓘ</button>
+                            <div
+                                v-show="ceremonyTypeInfoOpen"
+                                class="invisible absolute left-0 top-full z-10 mt-2 w-72 rounded-xl border border-[#3f6470]/15 bg-white p-4 text-left text-xs normal-case leading-relaxed text-[#2f4a4a] opacity-0 shadow-lg transition group-hover/tooltip:visible group-hover/tooltip:opacity-100 group-focus-within/tooltip:visible group-focus-within/tooltip:opacity-100 dark:border-white/10 dark:bg-slate-800 dark:text-slate-100"
+                                :class="{ 'visible opacity-100': ceremonyTypeInfoOpen }"
+                            >
+                                <p class="font-serif text-sm font-medium text-[#3f6470] dark:text-white">Ceremony Types</p>
+                                <div class="mt-2 space-y-3">
+                                    <div>
+                                        <p class="font-medium text-[#2f4a4a] dark:text-slate-100">Nuptial Mass (with Communion)</p>
+                                        <ul class="mt-1 list-disc space-y-0.5 pl-4 text-[#3f6470]/70 dark:text-slate-400">
+                                            <li>Includes the celebration of the Holy Mass and Holy Communion.</li>
+                                            <li>Usually chosen when both the bride and groom are practicing Catholics.</li>
+                                            <li>Duration: Approximately 1–1.5 hours.</li>
+                                        </ul>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-[#2f4a4a] dark:text-slate-100">Liturgy of the Word Only (No Mass)</p>
+                                        <ul class="mt-1 list-disc space-y-0.5 pl-4 text-[#3f6470]/70 dark:text-slate-400">
+                                            <li>Includes the marriage rite but does not include the celebration of the Eucharist.</li>
+                                            <li>Commonly used for mixed marriages (one Catholic and one non-Catholic) or when recommended by the parish priest.</li>
+                                            <li>Duration: Approximately 30–45 minutes.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </span>
+                    </label>
                     <div class="mt-1.5 flex flex-col gap-2 sm:flex-row sm:gap-3">
                         <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
                             <input v-model="form.details.ceremony_type" type="radio" value="nuptial_mass" class="mt-0.5" />
                             <span>
                                 <span class="font-medium">Nuptial Mass (with Communion)</span>
-                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">1 to 1.5 hours</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">A full Catholic wedding ceremony that includes the Holy Mass and Holy Communion.</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">Duration: Approximately 1–1.5 hours.</span>
                             </span>
                         </label>
                         <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
                             <input v-model="form.details.ceremony_type" type="radio" value="liturgy_of_the_word" class="mt-0.5" />
                             <span>
                                 <span class="font-medium">Liturgy of the Word Only (No Mass)</span>
-                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">30 to 45 minutes</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">A Catholic wedding ceremony that includes the exchange of vows and marriage rites but does not include the Holy Mass or Holy Communion.</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">Duration: Approximately 30–45 minutes.</span>
                             </span>
                         </label>
                     </div>
@@ -529,42 +915,29 @@ function submit() {
                 </div>
 
                 <div>
-                    <label class="field-label">Rehearsal Date</label>
+                    <label class="field-label">Wedding Rehearsal Date</label>
                     <input v-model="form.details.rehearsal_date" type="date" class="field-input" />
                     <p v-if="form.errors['details.rehearsal_date']" class="field-error">{{ form.errors['details.rehearsal_date'] }}</p>
                     <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">Usually held a few days before the wedding with the entourage.</p>
                 </div>
 
-                <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
-                    <input v-model="form.details.canonical_interview" type="checkbox" class="checkbox-input" />
-                    Canonical Interview completed
-                </label>
-                <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
-                    <input v-model="form.details.marriage_banns" type="checkbox" class="checkbox-input" />
-                    Marriage Banns posted
-                </label>
+                <div class="sm:col-span-2">
+                    <label class="field-label">Pre-Marriage Requirements</label>
+                    <div class="mt-1.5 flex flex-col gap-2">
+                        <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
+                            <input v-model="form.details.canonical_interview" type="checkbox" class="checkbox-input" />
+                            Canonical Interview Completed
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
+                            <input v-model="form.details.marriage_banns" type="checkbox" class="checkbox-input" />
+                            Marriage Banns Posted
+                        </label>
+                    </div>
+                </div>
             </div>
 
             <!-- Baptism -->
             <div v-else-if="form.type === 'baptism'" class="mt-5 space-y-5">
-                <div class="grid grid-cols-1 gap-5 sm:grid-cols-3">
-                    <div>
-                        <label class="field-label">Child's Name</label>
-                        <input v-model="form.details.child_name" type="text" class="field-input" />
-                        <p v-if="form.errors['details.child_name']" class="field-error">{{ form.errors['details.child_name'] }}</p>
-                    </div>
-                    <div>
-                        <label class="field-label">Father's Name</label>
-                        <input v-model="form.details.father_name" type="text" class="field-input" />
-                        <p v-if="form.errors['details.father_name']" class="field-error">{{ form.errors['details.father_name'] }}</p>
-                    </div>
-                    <div>
-                        <label class="field-label">Mother's Maiden Name</label>
-                        <input v-model="form.details.mother_maiden_name" type="text" class="field-input" />
-                        <p v-if="form.errors['details.mother_maiden_name']" class="field-error">{{ form.errors['details.mother_maiden_name'] }}</p>
-                    </div>
-                </div>
-
                 <div>
                     <label class="field-label">Baptism Type</label>
                     <div class="mt-1.5 flex flex-col gap-2 sm:flex-row sm:gap-3">
@@ -586,29 +959,113 @@ function submit() {
                     <p v-if="form.errors['details.baptism_type']" class="field-error">{{ form.errors['details.baptism_type'] }}</p>
                 </div>
 
-                <div>
-                    <label class="field-label">Godparents (Ninongs / Ninangs)</label>
-                    <p class="mt-1 text-xs text-[#3f6470]/60 dark:text-slate-400">Must be practicing Catholics, generally 16+ and confirmed.</p>
-                    <div class="mt-2 space-y-2">
-                        <div v-for="(gp, i) in form.details.godparents" :key="i" class="flex items-center gap-2">
-                            <input v-model="gp.name" type="text" class="field-input" :placeholder="`Godparent ${i + 1} full name`" />
-                            <button type="button" @click="removeGodparent(i)" class="shrink-0 rounded-lg border border-[#3f6470]/20 p-2 text-[#3f6470]/50 transition hover:bg-red-50 hover:text-red-500 dark:border-white/10 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-400">
+                <!-- Individual / Private: one child, one shared godparent list -->
+                <template v-if="form.details.baptism_type === 'individual'">
+                    <div class="grid grid-cols-1 gap-5 sm:grid-cols-3">
+                        <div>
+                            <label class="field-label">Child's Name</label>
+                            <input v-model="form.details.child_name" v-uppercase type="text" class="field-input" />
+                            <p v-if="form.errors['details.child_name']" class="field-error">{{ form.errors['details.child_name'] }}</p>
+                        </div>
+                        <div>
+                            <label class="field-label">Father's Name</label>
+                            <input v-model="form.details.father_name" v-uppercase type="text" class="field-input" />
+                            <p v-if="form.errors['details.father_name']" class="field-error">{{ form.errors['details.father_name'] }}</p>
+                        </div>
+                        <div>
+                            <label class="field-label">Mother's Maiden Name</label>
+                            <input v-model="form.details.mother_maiden_name" v-uppercase type="text" class="field-input" />
+                            <p v-if="form.errors['details.mother_maiden_name']" class="field-error">{{ form.errors['details.mother_maiden_name'] }}</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="field-label">Godparents (Ninongs / Ninangs)</label>
+                        <p class="mt-1 text-xs text-[#3f6470]/60 dark:text-slate-400">Must be practicing Catholics, generally 16+ and confirmed.</p>
+                        <div class="mt-2 space-y-2">
+                            <div v-for="(gp, i) in form.details.godparents" :key="i" class="flex items-center gap-2">
+                                <input v-model="gp.name" v-uppercase type="text" class="field-input" :placeholder="`Godparent ${i + 1} full name`" />
+                                <button type="button" @click="removeGodparent(i)" class="shrink-0 rounded-lg border border-[#3f6470]/20 p-2 text-[#3f6470]/50 transition hover:bg-red-50 hover:text-red-500 dark:border-white/10 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-400">
+                                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M6 18L18 6" stroke-linecap="round" /></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <button type="button" @click="addGodparent" class="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
+                            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round" /></svg>
+                            Add Godparent
+                        </button>
+                    </div>
+                </template>
+
+                <!-- Group / Community: one shared date/time/priest/venue, repeatable children -->
+                <template v-else>
+                    <p class="text-xs text-[#3f6470]/60 dark:text-slate-400">
+                        This reservation covers one shared time slot. Add each child being baptized, along with their own parents and godparents.
+                    </p>
+
+                    <div
+                        v-for="(child, ci) in form.details.children"
+                        :key="ci"
+                        class="rounded-xl border border-[#3f6470]/15 bg-white/70 p-4 dark:border-white/10 dark:bg-slate-700/40"
+                    >
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-sm font-semibold text-[#3f6470] dark:text-slate-200">Child {{ ci + 1 }}</h4>
+                            <button
+                                type="button"
+                                @click="removeChild(ci)"
+                                class="shrink-0 rounded-lg border border-[#3f6470]/20 p-1.5 text-[#3f6470]/50 transition hover:bg-red-50 hover:text-red-500 dark:border-white/10 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                            >
                                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M6 18L18 6" stroke-linecap="round" /></svg>
                             </button>
                         </div>
+
+                        <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                            <div>
+                                <label class="field-label">Child's Name</label>
+                                <input v-model="child.child_name" v-uppercase type="text" class="field-input" />
+                                <p v-if="form.errors[`details.children.${ci}.child_name`]" class="field-error">{{ form.errors[`details.children.${ci}.child_name`] }}</p>
+                            </div>
+                            <div>
+                                <label class="field-label">Father's Name</label>
+                                <input v-model="child.father_name" v-uppercase type="text" class="field-input" />
+                                <p v-if="form.errors[`details.children.${ci}.father_name`]" class="field-error">{{ form.errors[`details.children.${ci}.father_name`] }}</p>
+                            </div>
+                            <div>
+                                <label class="field-label">Mother's Maiden Name</label>
+                                <input v-model="child.mother_maiden_name" v-uppercase type="text" class="field-input" />
+                                <p v-if="form.errors[`details.children.${ci}.mother_maiden_name`]" class="field-error">{{ form.errors[`details.children.${ci}.mother_maiden_name`] }}</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-4">
+                            <label class="field-label">Godparents (Ninongs / Ninangs)</label>
+                            <div class="mt-2 space-y-2">
+                                <div v-for="(gp, gi) in child.godparents" :key="gi" class="flex items-center gap-2">
+                                    <input v-model="gp.name" v-uppercase type="text" class="field-input" :placeholder="`Godparent ${gi + 1} full name`" />
+                                    <button type="button" @click="removeChildGodparent(ci, gi)" class="shrink-0 rounded-lg border border-[#3f6470]/20 p-2 text-[#3f6470]/50 transition hover:bg-red-50 hover:text-red-500 dark:border-white/10 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-400">
+                                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M6 18L18 6" stroke-linecap="round" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <button type="button" @click="addChildGodparent(ci)" class="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round" /></svg>
+                                Add Godparent
+                            </button>
+                        </div>
                     </div>
-                    <button type="button" @click="addGodparent" class="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
+
+                    <button type="button" @click="addChild" class="inline-flex items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
                         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round" /></svg>
-                        Add Godparent
+                        Add Another Child
                     </button>
-                </div>
+                </template>
             </div>
 
             <!-- Burial -->
             <div v-else-if="form.type === 'burial'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div class="sm:col-span-2">
                     <label class="field-label">Deceased Person's Name</label>
-                    <input v-model="form.details.deceased_name" type="text" class="field-input" />
+                    <input v-model="form.details.deceased_name" v-uppercase type="text" class="field-input" />
                     <p v-if="form.errors['details.deceased_name']" class="field-error">{{ form.errors['details.deceased_name'] }}</p>
                 </div>
                 <div>
@@ -618,7 +1075,7 @@ function submit() {
                 </div>
                 <div>
                     <label class="field-label">Cause of Death</label>
-                    <input v-model="form.details.cause_of_death" type="text" class="field-input" />
+                    <input v-model="form.details.cause_of_death" v-uppercase type="text" class="field-input" />
                 </div>
 
                 <div class="sm:col-span-2">
@@ -631,65 +1088,21 @@ function submit() {
                                 <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">~60 min (up to 90 for large attendance)</span>
                             </span>
                         </label>
-                        <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
-                            <input v-model="form.details.service_type" type="radio" value="funeral_service" class="mt-0.5" />
-                            <span>
-                                <span class="font-medium">Funeral Service (No Mass)</span>
-                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">~20-30 min</span>
-                            </span>
-                        </label>
                     </div>
                     <p v-if="form.errors['details.service_type']" class="field-error">{{ form.errors['details.service_type'] }}</p>
                 </div>
 
                 <div class="sm:col-span-2">
-                    <label class="field-label">Scripture Readings</label>
-                    <textarea v-model="form.details.scripture_readings" rows="2" class="field-input" placeholder="e.g. John 11:25-27, Psalm 23"></textarea>
-                    <p v-if="form.errors['details.scripture_readings']" class="field-error">{{ form.errors['details.scripture_readings'] }}</p>
-                </div>
-
-                <div class="sm:col-span-2">
-                    <label class="field-label">Songs / Hymns</label>
-                    <textarea v-model="form.details.songs" rows="2" class="field-input" placeholder="e.g. Amazing Grace, Panalangin"></textarea>
-                    <p v-if="form.errors['details.songs']" class="field-error">{{ form.errors['details.songs'] }}</p>
-                </div>
-
-                <div>
-                    <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
-                        <input v-model="form.details.has_eulogy" type="checkbox" class="checkbox-input" />
-                        There will be a eulogy
-                    </label>
-                </div>
-
-                <div>
-                    <label class="field-label">Committal Type</label>
-                    <select v-model="form.details.committal_type" class="field-input">
-                        <option value="cemetery">Cemetery</option>
-                        <option value="crematorium">Crematorium</option>
-                    </select>
-                </div>
-
-                <div class="sm:col-span-2">
-                    <label class="field-label">{{ form.details.committal_type === 'crematorium' ? 'Crematorium Name' : 'Cemetery Name' }}</label>
-                    <input v-model="form.details.cemetery" type="text" class="field-input" />
+                    <label class="field-label">Cemetery Name</label>
+                    <input v-model="form.details.cemetery" v-uppercase type="text" class="field-input" />
                 </div>
             </div>
 
             <!-- First Communion -->
             <div v-else-if="form.type === 'first_communion'" class="mt-5">
                 <div class="sm:col-span-2">
-                    <label class="field-label">Who's Booking?</label>
+                    <label class="field-label">Booking Type</label>
                     <div class="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <label
-                            class="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-sm text-[#2f4a4a] dark:text-slate-100"
-                            :class="form.details.booking_mode === 'school_batch' ? 'border-[#3f6470] bg-[#3f6470]/5 dark:border-[#8CA089] dark:bg-[#8CA089]/10' : 'border-black/10 dark:border-white/10'"
-                        >
-                            <input v-model="form.details.booking_mode" type="radio" value="school_batch" class="mt-0.5" />
-                            <span>
-                                <span class="block font-medium">School / Group Booking</span>
-                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">For a school admin or teacher booking a whole Grade 3 batch.</span>
-                            </span>
-                        </label>
                         <label
                             class="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-sm text-[#2f4a4a] dark:text-slate-100"
                             :class="form.details.booking_mode === 'individual' ? 'border-[#3f6470] bg-[#3f6470]/5 dark:border-[#8CA089] dark:bg-[#8CA089]/10' : 'border-black/10 dark:border-white/10'"
@@ -697,45 +1110,112 @@ function submit() {
                             <input v-model="form.details.booking_mode" type="radio" value="individual" class="mt-0.5" />
                             <span>
                                 <span class="block font-medium">Individual / Parish Class</span>
-                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">For a parent registering their child for the parish's weekend catechism program.</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">For an individual child or a parish catechism participant.</span>
+                            </span>
+                        </label>
+                        <label
+                            class="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-sm text-[#2f4a4a] dark:text-slate-100"
+                            :class="form.details.booking_mode === 'school_batch' ? 'border-[#3f6470] bg-[#3f6470]/5 dark:border-[#8CA089] dark:bg-[#8CA089]/10' : 'border-black/10 dark:border-white/10'"
+                        >
+                            <input v-model="form.details.booking_mode" type="radio" value="school_batch" class="mt-0.5" />
+                            <span>
+                                <span class="block font-medium">School / Group Booking</span>
+                                <span class="block text-xs text-[#3f6470]/60 dark:text-slate-400">For a school registering an entire Grade 3 First Communion class.</span>
                             </span>
                         </label>
                     </div>
                     <p v-if="form.errors['details.booking_mode']" class="field-error">{{ form.errors['details.booking_mode'] }}</p>
                 </div>
 
-                <div v-if="form.details.booking_mode === 'school_batch'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <!-- Individual / Parish Class -->
+                <div v-if="form.details.booking_mode === 'individual'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
-                        <label class="field-label">Name of School / Institution</label>
-                        <input v-model="form.details.school_name" type="text" class="field-input" />
-                        <p v-if="form.errors['details.school_name']" class="field-error">{{ form.errors['details.school_name'] }}</p>
-                    </div>
-                    <div>
-                        <label class="field-label">School Contact Person</label>
-                        <input v-model="form.details.school_contact_person" type="text" class="field-input" />
-                        <p v-if="form.errors['details.school_contact_person']" class="field-error">{{ form.errors['details.school_contact_person'] }}</p>
-                    </div>
-                    <div>
-                        <label class="field-label">Number of Communicants</label>
-                        <input v-model.number="form.details.communicant_count" type="number" min="1" class="field-input" placeholder="e.g. 75" />
-                        <p v-if="form.errors['details.communicant_count']" class="field-error">{{ form.errors['details.communicant_count'] }}</p>
-                        <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">So the parish knows how many hosts and seats to prepare.</p>
-                    </div>
-                    <div>
-                        <label class="field-label">Parish / School Catechism Program</label>
-                        <input v-model="form.details.parish_or_school_program" type="text" class="field-input" />
-                    </div>
-                </div>
-
-                <div v-else class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
-                    <div>
-                        <label class="field-label">Child's Name</label>
-                        <input v-model="form.details.child_name" type="text" class="field-input" />
+                        <label class="field-label">Child's Full Name</label>
+                        <input v-model="form.details.child_name" v-uppercase type="text" class="field-input" />
                         <p v-if="form.errors['details.child_name']" class="field-error">{{ form.errors['details.child_name'] }}</p>
                     </div>
                     <div>
-                        <label class="field-label">Parish / School Catechism Program</label>
-                        <input v-model="form.details.parish_or_school_program" type="text" class="field-input" />
+                        <label class="field-label">Parent / Guardian Name</label>
+                        <input v-model="form.details.parent_guardian_name" v-uppercase type="text" class="field-input" />
+                        <p v-if="form.errors['details.parent_guardian_name']" class="field-error">{{ form.errors['details.parent_guardian_name'] }}</p>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="field-label">Parish / Catechism Program</label>
+                        <input v-model="form.details.parish_or_school_program" v-uppercase type="text" class="field-input" />
+                    </div>
+                </div>
+
+                <!-- School / Group Booking -->
+                <div v-else class="mt-5 space-y-6">
+                    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                        <div>
+                            <label class="field-label">School Name</label>
+                            <input v-model="form.details.school_name" v-uppercase type="text" class="field-input" />
+                            <p v-if="form.errors['details.school_name']" class="field-error">{{ form.errors['details.school_name'] }}</p>
+                        </div>
+                        <div>
+                            <label class="field-label">Expected Number of Students</label>
+                            <input v-model.number="form.details.communicant_count" type="number" min="1" class="field-input" placeholder="e.g. 75" />
+                            <p v-if="form.errors['details.communicant_count']" class="field-error">{{ form.errors['details.communicant_count'] }}</p>
+                            <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">So the parish knows how many hosts and seats to prepare.</p>
+                        </div>
+                    </div>
+
+                    <!-- Student List -->
+                    <div class="rounded-xl border border-[#3f6470]/15 bg-white/70 p-4 dark:border-white/10 dark:bg-slate-700/40">
+                        <label class="field-label">Student List</label>
+                        <p class="mt-1 text-xs text-[#3f6470]/60 dark:text-slate-400">Add each communicant by hand, or import them all at once from a CSV file.</p>
+                        <p v-if="form.errors['details.students']" class="field-error">{{ form.errors['details.students'] }}</p>
+                        <p v-if="studentCountMismatchWarning" class="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                            <svg class="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                            {{ studentCountMismatchWarning }}
+                        </p>
+
+                        <!-- Manual entry / preview -->
+                        <div class="mt-4">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60 dark:text-slate-400">
+                                {{ hasStudentEntries ? 'Student List Preview' : 'Manual Entry' }}
+                            </p>
+                            <div class="mt-2 space-y-2">
+                                <div v-for="(student, i) in form.details.students" :key="i" class="flex items-center gap-2">
+                                    <span class="w-7 shrink-0 text-xs text-[#3f6470]/50 dark:text-slate-500">{{ i + 1 }}.</span>
+                                    <input v-model="student.name" v-uppercase type="text" class="field-input" :placeholder="`Child ${i + 1} full name`" title="Edit Name" />
+                                    <button type="button" @click="removeStudent(i)" title="Remove" class="shrink-0 rounded-lg border border-[#3f6470]/20 p-2 text-[#3f6470]/50 transition hover:bg-red-50 hover:text-red-500 dark:border-white/10 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-400">
+                                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M6 18L18 6" stroke-linecap="round" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <button type="button" @click="addStudent" class="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round" /></svg>
+                                Add Student
+                            </button>
+                        </div>
+
+                        <!-- CSV import -->
+                        <div class="mt-5 border-t border-[#3f6470]/10 pt-4 dark:border-white/10">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60 dark:text-slate-400">Import Student List</p>
+                            <p class="mt-1 text-xs text-[#3f6470]/60 dark:text-slate-400">Import multiple students at once by following these steps:</p>
+                            <ol class="mt-1 list-decimal space-y-0.5 pl-4 text-xs text-[#3f6470]/60 dark:text-slate-400">
+                                <li>Download the template.</li>
+                                <li>Enter one student's full name per row.</li>
+                                <li>Save the file as a CSV.</li>
+                                <li>Upload the completed student list.</li>
+                            </ol>
+                            <div class="mt-3 flex flex-col gap-2 sm:flex-row">
+                                <button type="button" @click="downloadStudentCsvTemplate" class="inline-flex items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
+                                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                    ⬇ Download Template
+                                </button>
+                                <label class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
+                                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                    ⬆ Import Student List
+                                    <input type="file" accept=".csv,text/csv" class="hidden" @change="handleStudentCsvImport" />
+                                </label>
+                            </div>
+                            <p class="mt-2 text-xs text-[#3f6470]/50 dark:text-slate-500">The template contains one column: Child's Full Name. Enter one student per row.</p>
+                            <p v-if="csvImportMessage" class="mt-2 text-xs font-medium text-[#8CA089] dark:text-[#c9dcc3]">{{ csvImportMessage }}</p>
+                            <p v-if="csvImportError" class="field-error">{{ csvImportError }}</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -744,43 +1224,78 @@ function submit() {
             <div v-else-if="form.type === 'confirmation'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
                     <label class="field-label">Confirmand's Name</label>
-                    <input v-model="form.details.confirmand_name" type="text" class="field-input" />
+                    <input v-model="form.details.confirmand_name" v-uppercase type="text" class="field-input" />
                     <p v-if="form.errors['details.confirmand_name']" class="field-error">{{ form.errors['details.confirmand_name'] }}</p>
                 </div>
                 <div>
                     <label class="field-label">Confirmation Name (Saint's Name)</label>
-                    <input v-model="form.details.confirmation_name" type="text" class="field-input" />
+                    <input v-model="form.details.confirmation_name" v-uppercase type="text" class="field-input" />
                 </div>
                 <div class="sm:col-span-2">
                     <label class="field-label">Sponsor's Name</label>
-                    <input v-model="form.details.sponsor_name" type="text" class="field-input" />
+                    <input v-model="form.details.sponsor_name" v-uppercase type="text" class="field-input" />
                 </div>
             </div>
 
             <!-- Pamisa sa Kalag -->
-            <div v-else-if="form.type === 'pamisa_sa_kalag'" class="mt-5">
-                <label class="field-label">Names of the Deceased (one per line)</label>
-                <textarea
-                    v-model="form.details.names"
-                    rows="8"
-                    class="field-input font-mono text-sm"
-                    placeholder="Juan Dela Cruz&#10;Maria Santos&#10;Pedro Reyes"
-                ></textarea>
-                <p v-if="form.errors['details.names']" class="field-error">{{ form.errors['details.names'] }}</p>
-                <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">Type or paste one name per line — each line becomes a separate entry.</p>
-                <p class="mt-1 text-xs text-[#3f6470]/50 dark:text-slate-500">Submit at least 1-2 days before a weekday Mass, or a week ahead for a Sunday Mass, so the name makes the printed/announced list.</p>
+            <div v-else-if="form.type === 'pamisa_sa_kalag'" class="mt-5 space-y-6">
+                <!-- Names of the Deceased -->
+                <div class="rounded-xl border border-[#3f6470]/15 bg-white/70 p-4 dark:border-white/10 dark:bg-slate-700/40">
+                    <label class="field-label">Names of the Deceased</label>
+                    <p v-if="form.errors['details.names']" class="field-error">{{ form.errors['details.names'] }}</p>
+                    <div class="mt-2 space-y-2">
+                        <div v-for="(name, i) in form.details.names" :key="i" class="flex items-center gap-2">
+                            <span class="w-7 shrink-0 text-xs text-[#3f6470]/50 dark:text-slate-500">{{ i + 1 }}.</span>
+                            <input v-model="form.details.names[i]" v-uppercase type="text" class="field-input" placeholder="Name of the Deceased" />
+                            <button type="button" @click="removeDeceasedName(i)" title="Remove" class="shrink-0 rounded-lg border border-[#3f6470]/20 p-2 text-[#3f6470]/50 transition hover:bg-red-50 hover:text-red-500 dark:border-white/10 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-400">
+                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M6 18L18 6" stroke-linecap="round" /></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="button" @click="addDeceasedName" class="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
+                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round" /></svg>
+                        Add Name
+                    </button>
+
+                    <!-- Import Name List -->
+                    <div class="mt-5 border-t border-[#3f6470]/10 pt-4 dark:border-white/10">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60 dark:text-slate-400">Import Name List</p>
+                        <p class="mt-1 text-xs text-[#3f6470]/60 dark:text-slate-400">Import multiple names by downloading the template, entering one name per row, saving as CSV, and uploading the completed file.</p>
+                        <div class="mt-3 flex flex-col gap-2 sm:flex-row">
+                            <button type="button" @click="downloadDeceasedCsvTemplate" class="inline-flex items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                ⬇ Download Template
+                            </button>
+                            <label class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#E4EDE1]/60 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10">
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                ⬆ Import Name List
+                                <input type="file" accept=".csv,text/csv" class="hidden" @change="handleDeceasedCsvImport" />
+                            </label>
+                        </div>
+                        <p class="mt-2 text-xs text-[#3f6470]/50 dark:text-slate-500">The template contains one column: Name of the Deceased. Enter one name per row.</p>
+                        <p v-if="deceasedCsvImportMessage" class="mt-2 text-xs font-medium text-[#8CA089] dark:text-[#c9dcc3]">{{ deceasedCsvImportMessage }}</p>
+                        <p v-if="deceasedCsvImportError" class="field-error">{{ deceasedCsvImportError }}</p>
+                    </div>
+
+                    <!-- Summary -->
+                    <div class="mt-4 border-t border-[#3f6470]/10 pt-3 text-sm font-medium text-[#3f6470] dark:border-white/10 dark:text-slate-200">
+                        Total Names: {{ totalDeceasedNames }}
+                    </div>
+                </div>
+
+                <p class="text-xs text-[#3f6470]/50 dark:text-slate-500">Submit at least 1-2 days before a weekday Mass, or a week ahead for a Sunday Mass, so the name makes the printed/announced list.</p>
             </div>
 
             <!-- School Mass -->
             <div v-else-if="form.type === 'school_mass'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
                     <label class="field-label">School Name</label>
-                    <input v-model="form.details.school_name" type="text" class="field-input" />
+                    <input v-model="form.details.school_name" v-uppercase type="text" class="field-input" />
                     <p v-if="form.errors['details.school_name']" class="field-error">{{ form.errors['details.school_name'] }}</p>
                 </div>
                 <div>
                     <label class="field-label">Contact Person</label>
-                    <input v-model="form.details.school_contact_person" type="text" class="field-input" />
+                    <input v-model="form.details.school_contact_person" v-uppercase type="text" class="field-input" />
                     <p v-if="form.errors['details.school_contact_person']" class="field-error">{{ form.errors['details.school_contact_person'] }}</p>
                 </div>
                 <div>
@@ -825,10 +1340,7 @@ function submit() {
             <!-- Chapel Mass -->
             <div v-else-if="form.type === 'chapel_mass'" class="mt-5">
                 <label class="field-label">Kapilya / Barangay</label>
-                <select v-model="form.details.chapel" class="field-input">
-                    <option value="">Select a chapel</option>
-                    <option v-for="chapel in chapels" :key="chapel" :value="chapel">{{ chapel }}</option>
-                </select>
+                <input v-model="form.details.chapel" v-uppercase type="text" class="field-input" placeholder="Enter chapel or barangay name" />
                 <p v-if="form.errors['details.chapel']" class="field-error">{{ form.errors['details.chapel'] }}</p>
             </div>
 
@@ -851,7 +1363,7 @@ function submit() {
             <div v-else-if="form.type === 'business_blessing'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div class="sm:col-span-2">
                     <label class="field-label">Business / Office Name</label>
-                    <input v-model="form.details.business_name" type="text" class="field-input" />
+                    <input v-model="form.details.business_name" v-uppercase type="text" class="field-input" />
                     <p v-if="form.errors['details.business_name']" class="field-error">{{ form.errors['details.business_name'] }}</p>
                 </div>
                 <div class="sm:col-span-2">
@@ -866,7 +1378,7 @@ function submit() {
             <!-- Vehicle / Article Blessing -->
             <div v-else-if="form.type === 'vehicle_blessing'" class="mt-5">
                 <label class="field-label">Vehicle / Article Description</label>
-                <input v-model="form.details.item_description" type="text" class="field-input" placeholder="e.g. 2019 Toyota Vios, plate ABC 1234" />
+                <input v-model="form.details.item_description" v-uppercase type="text" class="field-input" placeholder="e.g. 2019 Toyota Vios, plate ABC 1234" />
                 <p v-if="form.errors['details.item_description']" class="field-error">{{ form.errors['details.item_description'] }}</p>
                 <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">Bring the item to the church courtyard at the date/time above. Usually takes just 5-10 minutes.</p>
             </div>
@@ -879,7 +1391,7 @@ function submit() {
                 </label>
                 <div>
                     <label class="field-label">Hospital Room / Home Address</label>
-                    <input v-model="form.details.patient_location" type="text" class="field-input" />
+                    <input v-model="form.details.patient_location" v-uppercase type="text" class="field-input" />
                     <p v-if="form.errors['details.patient_location']" class="field-error">{{ form.errors['details.patient_location'] }}</p>
                 </div>
                 <p v-if="form.details.is_emergency" class="text-xs font-medium text-red-600 dark:text-red-400">
@@ -909,7 +1421,7 @@ function submit() {
         <div class="flex items-center justify-end gap-3">
             <button
                 type="submit"
-                :disabled="form.processing"
+                :disabled="form.processing || massScheduleRequiredButMissing"
                 class="rounded-full bg-[#8CA089] px-8 py-3 text-sm font-semibold uppercase tracking-[0.1em] text-white shadow-sm shadow-[#8CA089]/30 transition hover:-translate-y-0.5 hover:bg-[#7c9078] hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
             >
                 {{ isEdit ? 'Update Reservation' : 'Save Reservation' }}
