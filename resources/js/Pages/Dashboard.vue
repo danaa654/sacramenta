@@ -8,7 +8,7 @@ const props = defineProps({
     upcomingEvents: { type: Array, default: () => [] },
     stats: {
         type: Object,
-        default: () => ({ total: 0, pending: 0, confirmed: 0, completedThisMonth: 0 }),
+        default: () => ({ total: 0, pending: 0, confirmed: 0, completedThisMonth: 0, completedThisYear: 0 }),
     },
     reservationsTodayCount: { type: Number, default: 0 },
     todayMassCount: { type: Number, default: 0 },
@@ -26,6 +26,10 @@ const props = defineProps({
 
 const page = usePage();
 const adminName = computed(() => page.props.auth?.user?.name?.split(' ')[0] ?? 'Admin');
+
+// "Completed" stat card toggles between this month's and this year's count
+// on click, instead of needing a separate card/page for the year view.
+const showCompletedThisYear = ref(false);
 
 // Hero photo rotation: fixed 600x220 images (no cropping/zooming since the
 // box is locked to the same size and aspect ratio as the source files).
@@ -266,7 +270,7 @@ const sparkline = computed(() => {
                         <!-- Confirmed -->
                         <div class="flex items-center justify-between rounded-2xl border border-[#e0cfa8] bg-[#EFE6D8]/90 p-4 shadow-md backdrop-blur-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-[#8a6a34]/40 dark:bg-[#3a2f1a]/70">
                             <div>
-                                <p class="text-xs font-semibold uppercase tracking-wide text-[#8a6a34] dark:text-[#e0cfa8]">Confirmed</p>
+                                <p class="text-xs font-semibold uppercase tracking-wide text-[#8a6a34] dark:text-[#e0cfa8]">Confirmed Masses This Week</p>
                                 <p class="mt-1 font-serif text-3xl font-medium text-[#8a6a34] dark:text-[#e0cfa8]">{{ stats.confirmed }}</p>
                             </div>
                             <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E5DEF5] text-[#6B4FA0]">
@@ -277,11 +281,19 @@ const sparkline = computed(() => {
                             </span>
                         </div>
 
-                        <!-- Completed this month -->
-                        <div class="flex items-center justify-between rounded-2xl border border-[#c9dcc3] bg-[#E4EDE1]/90 p-4 shadow-md backdrop-blur-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-[#4f7a4a]/40 dark:bg-[#1e2e1e]/70">
+                        <!-- Completed this month / year (click to toggle) -->
+                        <button
+                            type="button"
+                            @click="showCompletedThisYear = !showCompletedThisYear"
+                            class="flex items-center justify-between rounded-2xl border border-[#c9dcc3] bg-[#E4EDE1]/90 p-4 text-left shadow-md backdrop-blur-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-[#4f7a4a]/40 dark:bg-[#1e2e1e]/70"
+                        >
                             <div>
-                                <p class="text-xs font-semibold uppercase tracking-wide text-[#4f7a4a] dark:text-[#c9dcc3]">Completed This Month</p>
-                                <p class="mt-1 font-serif text-3xl font-medium text-[#4f7a4a] dark:text-[#c9dcc3]">{{ stats.completedThisMonth }}</p>
+                                <p class="text-xs font-semibold uppercase tracking-wide text-[#4f7a4a] dark:text-[#c9dcc3]">
+                                    {{ showCompletedThisYear ? 'Completed This Year' : 'Completed This Month' }}
+                                </p>
+                                <p class="mt-1 font-serif text-3xl font-medium text-[#4f7a4a] dark:text-[#c9dcc3]">
+                                    {{ showCompletedThisYear ? stats.completedThisYear : stats.completedThisMonth }}
+                                </p>
                             </div>
                             <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#DCEEE0] text-[#3f7a4f]">
                                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -290,7 +302,7 @@ const sparkline = computed(() => {
                                     <path d="M9 14.5l1.8 1.8L15 12.5" stroke-linecap="round" stroke-linejoin="round" />
                                 </svg>
                             </span>
-                        </div>
+                        </button>
                     </div>
                 </div>
 

@@ -49,7 +49,16 @@ class GenerateMassSchedule extends Command
             return self::SUCCESS;
         }
 
-        $start = now()->startOfDay();
+        // Start from the beginning of THIS week, not just today. The
+        // daily scheduled run only ever generates forward from "today",
+        // so if the command's first run in a given week lands on, say,
+        // Tuesday, Monday's occurrences for that week would otherwise
+        // never get created — silently under-counting anything that
+        // reads the real `reservations` rows (e.g. the "Confirmed Masses
+        // This Week" dashboard stat). firstOrCreate in generateOccurrence()
+        // makes this safe to widen: it never touches a row that's already
+        // been generated, edited, or cancelled.
+        $start = now()->startOfWeek()->startOfDay();
         $end = now()->addWeeks($weeksAhead)->endOfDay();
 
         $created = 0;

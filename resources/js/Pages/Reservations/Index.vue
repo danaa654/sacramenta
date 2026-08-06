@@ -20,12 +20,24 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    showPastRecords: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 function toggleRegularMasses(event) {
     router.get(
         route('reservations.index'),
-        { ...props.filters, show_regular_masses: event.target.checked ? 1 : undefined },
+        { ...props.filters, show_regular_masses: event.target.checked ? 1 : undefined, show_past_records: props.showPastRecords ? 1 : undefined },
+        { preserveState: true, preserveScroll: true, replace: true }
+    );
+}
+
+function togglePastRecords(event) {
+    router.get(
+        route('reservations.index'),
+        { ...props.filters, show_regular_masses: props.showRegularMasses ? 1 : undefined, show_past_records: event.target.checked ? 1 : undefined },
         { preserveState: true, preserveScroll: true, replace: true }
     );
 }
@@ -145,7 +157,16 @@ function openReservation(reservation) {
                     </Link>
                 </div>
 
-                <div class="flex items-center justify-end">
+                <div class="flex flex-wrap items-center justify-end gap-x-6 gap-y-2">
+                    <label class="flex cursor-pointer items-center gap-2 text-xs font-medium text-[#3f6470] dark:text-slate-300">
+                        <input
+                            type="checkbox"
+                            :checked="showPastRecords"
+                            @change="togglePastRecords"
+                            class="rounded border-[#3f6470]/30 text-[#8CA089] focus:ring-[#8CA089]"
+                        />
+                        Show completed &amp; archived
+                    </label>
                     <label class="flex cursor-pointer items-center gap-2 text-xs font-medium text-[#3f6470] dark:text-slate-300">
                         <input
                             type="checkbox"

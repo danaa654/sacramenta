@@ -235,6 +235,19 @@ function cancelReservation() {
     saveActions();
 }
 
+// A completed sacrament wasn't "cancelled" — it happened. This gives
+// completed reservations their own path into the Archives history log
+// instead of reusing the Cancel button/wording, which would misrepresent
+// what happened.
+function archiveReservation() {
+    if (!confirm('Move this completed reservation to Archives? It will no longer appear in the active Reservations list.')) {
+        return;
+    }
+
+    actionsForm.status = 'archived';
+    saveActions();
+}
+
 function deleteReservation() {
     if (confirm(`Delete the reservation for ${props.reservation.contact_name}? This cannot be undone.`)) {
         router.delete(route('reservations.destroy', props.reservation.id));
@@ -586,12 +599,16 @@ const confirmTooltip = computed(() => {
                                 <select
                                     id="action-status"
                                     v-model="actionsForm.status"
-                                    class="field-input mt-1.5 capitalize"
+                                    :disabled="reservation.status === 'completed'"
+                                    class="field-input mt-1.5 capitalize disabled:cursor-not-allowed disabled:bg-[#3f6470]/5 disabled:text-[#3f6470]/50"
                                 >
                                     <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
                                         {{ opt.label }}
                                     </option>
                                 </select>
+                                <p v-if="reservation.status === 'completed'" class="mt-1.5 text-xs text-[#3f6470]/50">
+                                    Already completed — use Archive Reservation below to file it, rather than reopening the status.
+                                </p>
                             </div>
 
                             <div>
@@ -640,7 +657,17 @@ const confirmTooltip = computed(() => {
                             </p>
 
                             <button
-                                v-if="reservation.status !== 'archived'"
+                                v-if="reservation.status === 'completed'"
+                                type="button"
+                                @click="archiveReservation"
+                                :disabled="actionsForm.processing"
+                                class="w-full rounded-full bg-[#3f6470] px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#33525c] hover:shadow-md disabled:pointer-events-none disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                Archive Reservation
+                            </button>
+
+                            <button
+                                v-if="reservation.status !== 'archived' && reservation.status !== 'completed'"
                                 type="button"
                                 @click="cancelReservation"
                                 :disabled="actionsForm.processing"

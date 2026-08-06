@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 
 const props = defineProps({
     reservations: {
@@ -17,6 +17,20 @@ const props = defineProps({
 const search = ref(props.filters.search ?? '');
 const type = ref(props.filters.type ?? '');
 const status = ref(props.filters.status ?? '');
+
+// Only these sacraments produce an actual paper certificate — everything
+// else (blessings, Masses, confession, etc.) has no certificate to print.
+const certificateTypes = ['wedding', 'baptism', 'first_communion', 'burial'];
+
+// Debounced live search: fires automatically ~350ms after the user stops
+// typing, so results update as-you-type without needing Enter/Apply for
+// every keystroke (which would spam requests on each character).
+let searchDebounce = null;
+
+watch(search, () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => applyFilters(), 350);
+});
 
 function applyFilters() {
     router.get(
@@ -57,6 +71,25 @@ const statusStyles = {
     cancelled: 'bg-[#F5D9D9] text-[#B84545] border-[#eac2c2]',
     archived: 'bg-white text-[#3f6470]/50 border-[#3f6470]/15',
 };
+
+// "Archived" alone doesn't say whether the event actually happened
+// (completed, then filed away) or never did (cancelled) — spell that
+// out here instead of leaving it to the badge color alone.
+function archivedStatusLabel(reservation) {
+    if (reservation.status !== 'archived') {
+        return reservation.status;
+    }
+
+    if (reservation.archive_reason === 'completed') {
+        return 'Archived (Completed)';
+    }
+
+    if (reservation.archive_reason === 'cancelled') {
+        return 'Archived (Cancelled)';
+    }
+
+    return 'Archived';
+}
 
 function formatDate(date) {
     return new Date(date).toLocaleDateString('en-US', {
@@ -163,13 +196,22 @@ function formatDate(date) {
                                         class="rounded-full border px-3 py-1 text-xs font-medium capitalize"
                                         :class="statusStyles[r.status] ?? statusStyles.archived"
                                     >
-                                        {{ r.status }}
+                                        {{ archivedStatusLabel(r) }}
                                     </span>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-right text-sm">
                                     <Link :href="route('reservations.show', r.id)" class="font-medium text-[#3f6470] hover:underline dark:text-slate-300">
                                         View
                                     </Link>
+                                    <a
+                                        v-if="certificateTypes.includes(r.type)"
+                                        :href="route('reservations.certificate', r.id)"
+                                        target="_blank"
+                                        rel="noopener"
+                                        class="ml-4 font-medium text-[#8CA089] hover:underline"
+                                    >
+                                        Print Certificate
+                                    </a>
                                 </td>
                             </tr>
 

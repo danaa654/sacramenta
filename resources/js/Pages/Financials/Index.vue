@@ -212,6 +212,7 @@ function saveEdit(r) {
 
                 <!-- Ledger table -->
                 <div class="overflow-hidden rounded-2xl border border-white/80 bg-white/90 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
+                    <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-[#3f6470]/10 dark:divide-white/10">
                         <thead>
                             <tr class="text-left text-xs font-semibold uppercase tracking-wide text-[#3f6470]/50 dark:text-slate-400">
@@ -359,6 +360,7 @@ function saveEdit(r) {
                             </tr>
                         </tbody>
                     </table>
+                    </div>
                 </div>
 
                 <div v-if="reservations.links.length > 3" class="flex flex-wrap gap-2">

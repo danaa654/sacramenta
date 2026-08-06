@@ -14,7 +14,8 @@ use Illuminate\Support\Facades\DB;
  * actively triggered by clicking a button:
  *
  *   - drafts sitting unconfirmed past the SLA window ("pending too long")
- *   - confirmed reservations happening today ("reminder")
+ *   - confirmed reservations happening today, plus an advance heads-up
+ *     a few days out ("reminder")
  *   - two confirmed reservations that ended up colliding anyway (data
  *     fixes, manual DB edits, etc. — the normal confirm flow already
  *     blocks this, so this is a safety net, not the primary defense)
@@ -31,10 +32,17 @@ class CheckReservationNotifications extends Command
 
     protected int $pendingSlaHours = 48;
 
+    /**
+     * How many days ahead to send an advance heads-up, in addition to the
+     * same-day reminder. E.g. [3] sends one extra notification 3 days
+     * before the event, on top of the existing "happening today" one.
+     */
+    protected array $upcomingReminderDays = [3];
+
     public function handle(NotificationDispatcher $notifier): int
     {
         $this->notifyStaleDrafts($notifier);
-        $this->notifyTodaysEvents($notifier);
+        $this->notifyUpcomingEvents($notifier);
         $this->notifyConflicts($notifier);
 
         return self::SUCCESS;
@@ -61,26 +69,54 @@ class CheckReservationNotifications extends Command
         }
     }
 
-    protected function notifyTodaysEvents(NotificationDispatcher $notifier): void
+    /**
+     * Confirmed reservations happening today, plus an advance heads-up for
+     * each offset in $upcomingReminderDays (e.g. 3 days out). Same 'reminder'
+     * kind either way — only the title/body differ — since the dedup check
+     * is scoped to the last 24 hours, the 3-day-out notice and the
+     * same-day one for the same reservation land on different days and
+     * never collide.
+     */
+    protected function notifyUpcomingEvents(NotificationDispatcher $notifier): void
     {
-        $today = Reservation::query()
+        $this->notifyEventsOnDate($notifier, now()->toDateString(), same: true);
+
+        foreach ($this->upcomingReminderDays as $daysAhead) {
+            $this->notifyEventsOnDate($notifier, now()->addDays($daysAhead)->toDateString(), same: false, daysAhead: $daysAhead);
+        }
+    }
+
+    protected function notifyEventsOnDate(NotificationDispatcher $notifier, string $date, bool $same, int $daysAhead = 0): void
+    {
+        $reservations = Reservation::query()
             ->where('status', 'confirmed')
-            ->whereDate('event_date', now()->toDateString())
+            ->whereDate('event_date', $date)
             ->get();
 
-        foreach ($today as $reservation) {
+        foreach ($reservations as $reservation) {
             if ($this->alreadyNotifiedToday('reminder', $reservation->id)) {
                 continue;
             }
 
             $time = $reservation->event_time
                 ? Carbon::parse($reservation->event_time)->format('g:i A')
-                : 'later today';
+                : null;
+
+            $typeLabel = str_replace('_', ' ', $reservation->type);
+
+            if ($same) {
+                $title = 'Upcoming today';
+                $body = "{$reservation->contact_name}'s {$typeLabel} is scheduled for ".($time ?? 'later today').'.';
+            } else {
+                $title = "Upcoming in {$daysAhead} day".($daysAhead === 1 ? '' : 's');
+                $when = Carbon::parse($date)->format('M j').($time ? " at {$time}" : '');
+                $body = "{$reservation->contact_name}'s {$typeLabel} is coming up on {$when}.";
+            }
 
             $notifier->notifyAdmins(
                 kind: 'reminder',
-                title: 'Upcoming today',
-                body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type)." is scheduled for {$time}.",
+                title: $title,
+                body: $body,
                 reservation: $reservation,
             );
         }

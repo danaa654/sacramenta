@@ -40,6 +40,7 @@ class ReservationController extends Controller
     public function index(Request $request): Response
     {
         $showRegularMasses = $request->boolean('show_regular_masses');
+        $showPastRecords = $request->boolean('show_past_records');
 
         $reservations = Reservation::with('priest')
             ->when($request->string('type')->toString(), fn ($q, $type) => $q->where('type', $type))
@@ -51,6 +52,17 @@ class ReservationController extends Controller
             // they don't drown out actual staff-entered bookings; opt back
             // in with ?show_regular_masses=1.
             ->when(! $showRegularMasses, fn ($q) => $q->whereNull('mass_schedule_id'))
+            // Completed and archived reservations are done — they already
+            // have a dedicated read-only history view (Archives). Leaving
+            // them in this list too meant every finished record sat here
+            // forever, mixed in with the ones staff actually still need to
+            // act on. Hidden by default; opt back in with
+            // ?show_past_records=1 (an explicit status filter, e.g.
+            // ?status=completed, also still reaches them directly).
+            ->when(
+                ! $showPastRecords && ! $request->string('status')->toString(),
+                fn ($q) => $q->whereNotIn('status', ['completed', 'archived'])
+            )
             ->orderByDesc('event_date')
             ->paginate(15)
             ->withQueryString();
@@ -59,6 +71,7 @@ class ReservationController extends Controller
             'reservations' => $reservations,
             'filters' => $request->only(['type', 'status']),
             'showRegularMasses' => $showRegularMasses,
+            'showPastRecords' => $showPastRecords,
         ]);
     }
 
@@ -115,6 +128,35 @@ class ReservationController extends Controller
     public function receipt(Reservation $reservation)
     {
         return view('receipts.reservation', [
+            'reservation' => $reservation,
+        ]);
+    }
+
+    /**
+     * Which reservation types have a printable sacramental certificate, and
+     * which Blade view renders it. Only sacraments that produce an actual
+     * paper certificate belong here — most reservation types (blessings,
+     * Masses, etc.) have no certificate to print.
+     */
+    protected array $certificateViews = [
+        'wedding' => 'certificates.wedding',
+        'baptism' => 'certificates.baptism',
+        'first_communion' => 'certificates.first_communion',
+        'burial' => 'certificates.burial',
+    ];
+
+    /**
+     * Printable sacramental certificate (Marriage, Baptismal, First
+     * Communion, or Death/Burial) for this reservation. Plain Blade +
+     * window.print(), same approach as the Official Receipt — no PDF
+     * library dependency, and staff can "Save as PDF" from the browser's
+     * print dialog if they need a file.
+     */
+    public function certificate(Reservation $reservation)
+    {
+        abort_unless(isset($this->certificateViews[$reservation->type]), 404);
+
+        return view($this->certificateViews[$reservation->type], [
             'reservation' => $reservation,
         ]);
     }
@@ -194,6 +236,12 @@ class ReservationController extends Controller
             'status' => ['required', Rule::in(['draft', 'confirmed', 'completed', 'archived'])],
         ]);
 
+        $completedLockBlocker = $this->completedLockBlocker($reservation, $validated['status']);
+
+        if ($completedLockBlocker) {
+            return back()->withErrors(['status' => $completedLockBlocker]);
+        }
+
         $blocker = $this->confirmationBlocker($reservation, $validated['status']);
 
         if ($blocker) {
@@ -201,8 +249,12 @@ class ReservationController extends Controller
         }
 
         $wasConfirmed = $reservation->status === 'confirmed';
+        $archiveReason = $this->resolveArchiveReason($reservation, $validated['status']);
 
-        $reservation->update(['status' => $validated['status']]);
+        $reservation->update([
+            'status' => $validated['status'],
+            'archive_reason' => $archiveReason,
+        ]);
 
         if ($validated['status'] === 'confirmed' && ! $wasConfirmed) {
             $this->handleNewlyConfirmed($reservation, $request);
@@ -231,6 +283,12 @@ class ReservationController extends Controller
         // against the priest that's about to be saved, not the old one.
         $reservation->priest_id = $validated['priest_id'] ?? null;
 
+        $completedLockBlocker = $this->completedLockBlocker($reservation, $validated['status']);
+
+        if ($completedLockBlocker) {
+            return back()->withErrors(['status' => $completedLockBlocker]);
+        }
+
         $blocker = $this->confirmationBlocker($reservation, $validated['status']);
 
         if ($blocker) {
@@ -238,8 +296,10 @@ class ReservationController extends Controller
         }
 
         $wasConfirmed = $reservation->getOriginal('status') === 'confirmed';
+        $archiveReason = $this->resolveArchiveReason($reservation, $validated['status']);
 
         $reservation->status = $validated['status'];
+        $reservation->archive_reason = $archiveReason;
         $reservation->payment_status = $validated['payment_status'];
 
         // The Financials "Record Payment" drawer always asks for Status and
@@ -264,6 +324,52 @@ class ReservationController extends Controller
         }
 
         return back()->with('success', 'Reservation updated.');
+    }
+
+    /**
+     * 'archived' collapses two different situations — cancelled before it
+     * happened, or completed and later filed into history — into one
+     * status value. This derives which one just happened from the
+     * reservation's status *before* this update, so the distinction is
+     * recorded automatically without adding another field for staff to
+     * fill in. Non-archive transitions clear it, so a record that leaves
+     * Archives (edge case, but possible via direct status changes) doesn't
+     * carry a stale reason.
+     */
+    protected function resolveArchiveReason(Reservation $reservation, string $newStatus): ?string
+    {
+        if ($newStatus !== 'archived') {
+            return null;
+        }
+
+        if ($reservation->status === 'archived') {
+            // Already archived and staying archived (e.g. Save Changes with
+            // no actual status change) — keep whatever reason it already has.
+            return $reservation->archive_reason;
+        }
+
+        return $reservation->status === 'completed' ? 'completed' : 'cancelled';
+    }
+
+    /**
+     * A completed sacrament already happened — reopening it to Draft or
+     * Confirmed would misrepresent the record, and "Cancelled" doesn't
+     * make sense for something that's done. The only place a Completed
+     * reservation is allowed to go is Archived (filed into history).
+     * Mirrors the Status dropdown being locked on the Show page, but
+     * enforced here too since that's just a UI convenience.
+     */
+    protected function completedLockBlocker(Reservation $reservation, string $newStatus): ?string
+    {
+        if ($reservation->status !== 'completed' || $newStatus === 'completed') {
+            return null;
+        }
+
+        if ($newStatus === 'archived') {
+            return null;
+        }
+
+        return 'This reservation is already completed — it can only be moved to Archived from here, not reopened.';
     }
 
     /**

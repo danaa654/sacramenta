@@ -23,6 +23,7 @@ class Reservation extends Model
         'location_id',
         'mass_schedule_id',
         'status',
+        'archive_reason',
         'details',
         'offering_amount',
         'payment_status',

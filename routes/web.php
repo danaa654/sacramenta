@@ -51,6 +51,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('reservations/{reservation}/receipt', [ReservationController::class, 'receipt'])
         ->name('reservations.receipt');
 
+    Route::get('reservations/{reservation}/certificate', [ReservationController::class, 'certificate'])
+        ->name('reservations.certificate');
+
     Route::patch('reservations/{reservation}/requirements', [ReservationController::class, 'updateRequirements'])
         ->name('reservations.requirements.update');
 

@@ -43,11 +43,39 @@ class DashboardController extends Controller
                 ->get(),
 
             'stats' => [
-                'total' => Reservation::count(),
+                // Actual sacrament/event reservations only — the recurring
+                // daily/weekly Masses have their own "Regular Mass Schedule"
+                // widget and shouldn't inflate this count.
+                'total' => Reservation::whereNotIn('type', $this->massLikeTypes)->count(),
                 'pending' => Reservation::where('status', 'draft')->count(),
-                'confirmed' => Reservation::where('status', 'confirmed')->count(),
-                'completedThisMonth' => Reservation::where('status', 'completed')
+                // Confirmed regular Masses happening this week (Mon-Sun),
+                // rather than confirmed sacrament reservations of any kind —
+                // pairs with the Regular Mass Schedule widget below.
+                'confirmed' => Reservation::whereIn('type', $this->massLikeTypes)
+                    ->where('status', 'confirmed')
+                    ->whereBetween('event_date', [
+                        $today->copy()->startOfWeek(),
+                        $today->copy()->endOfWeek(),
+                    ])
+                    ->count(),
+                'completedThisMonth' => Reservation::where(function ($q) {
+                        $q->where('status', 'completed')
+                            ->orWhere(function ($q) {
+                                // Filed into Archives, but it happened — see
+                                // resolveArchiveReason() in ReservationController.
+                                $q->where('status', 'archived')->where('archive_reason', 'completed');
+                            });
+                    })
                     ->whereMonth('event_date', $today->month)
+                    ->whereYear('event_date', $today->year)
+                    ->count(),
+                'completedThisYear' => Reservation::where(function ($q) {
+                        $q->where('status', 'completed')
+                            ->orWhere(function ($q) {
+                                $q->where('status', 'archived')->where('archive_reason', 'completed');
+                            });
+                    })
+                    ->whereYear('event_date', $today->year)
                     ->count(),
             ],
 
