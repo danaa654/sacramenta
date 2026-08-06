@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\MassSchedule;
 use App\Models\Priest;
 use App\Models\Reservation;
 use Carbon\Carbon;
@@ -50,9 +51,20 @@ class CalendarController extends Controller
             ->orderBy('event_time')
             ->get();
 
+        // The sidebar's "Weekly Masses" list used to be a hand-maintained JS
+        // array that mirrored MassScheduleSeeder by hand and had drifted out
+        // of sync with the real, editable mass_schedules table. Load the
+        // actual template rows here instead so the sidebar always reflects
+        // whatever is really in the database.
+        $massSchedules = MassSchedule::with('location:id,name')
+            ->where('is_active', true)
+            ->orderBy('start_time')
+            ->get(['id', 'label', 'days_of_week', 'start_time', 'end_time', 'language', 'is_livestreamed', 'location_id']);
+
         return Inertia::render('Calendar/Index', [
             'reservations' => $reservations,
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
+            'massSchedules' => $massSchedules,
             'colors' => config('calendar.colors'),
             'defaultColor' => config('calendar.default_color'),
             'month' => $month,

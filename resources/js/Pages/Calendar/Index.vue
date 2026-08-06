@@ -16,6 +16,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    massSchedules: {
+        type: Array,
+        default: () => [],
+    },
     colors: {
         type: Object,
         default: () => ({}),
@@ -65,99 +69,49 @@ const STATUS_OPACITY = {
 
 const selectedPriest = ref('all');
 
-// ---- Standard Mass schedule (mirrors database/seeders/MassScheduleSeeder.php) ----
-// This is the parish's standing weekly template — not live data — so it's
-// kept in sync by hand with the seeder's day/time/language/location rows.
+// ---- Standard Mass schedule (real data, from the mass_schedules table) ----
+// This used to be a JS array hand-copied from MassScheduleSeeder.php, which
+// silently drifted out of sync with the actual (editable) template rows in
+// the database. It's now built from `props.massSchedules`, which the
+// backend loads straight from the `mass_schedules` table
+// (CalendarController@index), so the sidebar always matches reality.
 // Carbon weekday ints: 0 = Sunday ... 6 = Saturday.
-const STANDARD_SCHEDULE = [
-    {
-        day: 0,
-        label: 'Sunday',
-        slots: [
-            { time: '5:00 AM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '6:15 AM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '7:30 AM', language: 'English', location: 'Main Sanctuary' },
-            { time: '8:45 AM', language: 'Cebuano', location: 'Main Sanctuary', live: true },
-            { time: '10:00 AM', language: 'English', location: 'Main Sanctuary', live: true },
-            { time: '11:15 AM', language: 'English', location: 'Main Sanctuary' },
-            { time: '2:30 PM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '3:45 PM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '5:00 PM', language: 'English', location: 'Main Sanctuary' },
-            { time: '6:15 PM', language: 'Cebuano', location: 'Main Sanctuary' },
-        ],
-    },
-    {
-        day: 1,
-        label: 'Monday',
-        slots: [
-            { time: '6:00 AM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '7:00 AM', language: 'English', location: 'Main Sanctuary' },
-            { time: '12:15 PM', language: 'English', location: 'Main Sanctuary' },
-            { time: '5:30 PM', language: 'Cebuano', location: 'Main Sanctuary' },
-        ],
-    },
-    {
-        day: 2,
-        label: 'Tuesday',
-        slots: [
-            { time: '6:00 AM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '7:00 AM', language: 'English', location: 'Main Sanctuary' },
-            { time: '12:15 PM', language: 'English', location: 'Main Sanctuary' },
-            { time: '5:30 PM', language: 'Cebuano', location: 'Main Sanctuary' },
-        ],
-    },
-    {
-        day: 3,
-        label: 'Wednesday',
-        slots: [
-            { time: '6:00 AM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '7:00 AM', language: 'English', location: 'Main Sanctuary' },
-            { time: '12:15 PM', language: 'English', location: 'Main Sanctuary' },
-            { time: '5:30 PM', language: 'Cebuano', location: 'Main Sanctuary' },
-        ],
-    },
-    {
-        day: 4,
-        label: 'Thursday',
-        slots: [
-            { time: '6:00 AM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '7:00 AM', language: 'English', location: 'Main Sanctuary' },
-            { time: '12:15 PM', language: 'English', location: 'Main Sanctuary' },
-            { time: '5:30 PM', language: 'Cebuano', location: 'Main Sanctuary' },
-        ],
-    },
-    {
-        day: 5,
-        label: 'Friday',
-        slots: [
-            { time: '6:00 AM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '7:00 AM', language: 'English', location: 'Main Sanctuary' },
-            { time: '12:15 PM', language: 'English', location: 'Main Sanctuary' },
-            { time: '3:00 PM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '3:00 PM', language: 'Cebuano', location: 'Chapel (overflow)' },
-            { time: '5:30 PM', language: 'English', location: 'Main Sanctuary' },
-        ],
-    },
-    {
-        day: 6,
-        label: 'Saturday',
-        slots: [
-            { time: '6:00 AM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '7:00 AM', language: 'English', location: 'St. Joseph Chapel' },
-            { time: '7:30 AM', language: 'Cebuano', location: 'Main Sanctuary' },
-            { time: '4:30 PM', language: 'English', location: 'Main Sanctuary' },
-            { time: '6:00 PM', language: 'Cebuano', location: 'Main Sanctuary' },
-        ],
-    },
-];
+const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function formatSlotTime(time24) {
+    if (!time24) return '';
+    const [h, m] = time24.split(':');
+    const hour12 = ((Number(h) + 11) % 12) + 1;
+    const suffix = Number(h) >= 12 ? 'PM' : 'AM';
+    return `${hour12}:${m} ${suffix}`;
+}
+
+const STANDARD_SCHEDULE = computed(() =>
+    DAY_LABELS.map((label, day) => {
+        const slots = props.massSchedules
+            .filter((s) => (s.days_of_week ?? []).includes(day))
+            .slice()
+            .sort((a, b) => a.start_time.localeCompare(b.start_time))
+            .map((s) => ({
+                time: formatSlotTime(s.start_time),
+                language: s.language ?? '—',
+                location: s.location?.name ?? '—',
+                live: !!s.is_livestreamed,
+            }));
+
+        return { day, label, slots };
+    })
+);
 
 // Weekday -> standard Mass count, used for the small per-day indicator on
 // the calendar grid (independent of however many bookings actually exist
 // that week).
-const standardMassCountByWeekday = STANDARD_SCHEDULE.reduce((acc, d) => {
-    acc[d.day] = d.slots.length;
-    return acc;
-}, {});
+const standardMassCountByWeekday = computed(() =>
+    STANDARD_SCHEDULE.value.reduce((acc, d) => {
+        acc[d.day] = d.slots.length;
+        return acc;
+    }, {})
+);
 
 function colorFor(type) {
     return props.colors[type] ?? props.defaultColor;
@@ -391,7 +345,7 @@ function dayCellDidMount(info) {
     }
 
     const booked = massesByDate.value[date]?.length ?? 0;
-    const count = booked || standardMassCountByWeekday[info.date.getDay()];
+    const count = booked || standardMassCountByWeekday.value[info.date.getDay()];
     if (!count) return;
 
     const badge = document.createElement('span');
@@ -400,7 +354,7 @@ function dayCellDidMount(info) {
     badge.title = booked
         ? `${count} Mass${count > 1 ? 'es' : ''} scheduled — click for details`
         : `${count} standard Mass${count > 1 ? 'es' : ''} scheduled every ${
-              STANDARD_SCHEDULE.find((d) => d.day === info.date.getDay())?.label ?? ''
+              STANDARD_SCHEDULE.value.find((d) => d.day === info.date.getDay())?.label ?? ''
           }`;
 
     if (booked) {
