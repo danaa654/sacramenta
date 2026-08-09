@@ -137,7 +137,11 @@ function confirmReservation(reservation) {
 }
 
 function openReservation(reservation) {
-    router.visit(route('reservations.show', reservation.id));
+    // Carry this list's current filters/pagination along as ?from= so the
+    // Reservation Details page's "Back to Reservations" button returns here
+    // instead of a bare /reservations.
+    const from = encodeURIComponent(window.location.pathname + window.location.search);
+    router.visit(`${route('reservations.show', reservation.id)}?from=${from}`);
 }
 </script>
 

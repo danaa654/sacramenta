@@ -138,6 +138,15 @@ function openDetails(reservation) {
 function closeDetails() {
     selected.value = null;
 }
+
+// Full relative URL of this Archives view (path + current search/type/status/
+// page query string) so the Reservation Details page can send the admin back
+// to exactly this list state via "Back to Archives" instead of always
+// bouncing to /reservations.
+function showHref(id) {
+    const from = encodeURIComponent(window.location.pathname + window.location.search);
+    return `${route('reservations.show', id)}?from=${from}`;
+}
 </script>
 
 <template>
@@ -246,7 +255,7 @@ function closeDetails() {
                                     </span>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-right text-sm">
-                                    <Link :href="route('reservations.show', r.id)" class="font-medium text-[#3f6470] hover:underline dark:text-slate-300">
+                                    <Link :href="showHref(r.id)" class="font-medium text-[#3f6470] hover:underline dark:text-slate-300">
                                         View
                                     </Link>
                                     <a
@@ -381,7 +390,7 @@ function closeDetails() {
                     </a>
                     <span v-else></span>
                     <Link
-                        :href="route('reservations.show', selected.id)"
+                        :href="showHref(selected.id)"
                         class="rounded-full bg-[#173528] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-[#0f2818]"
                     >
                         View Full Record

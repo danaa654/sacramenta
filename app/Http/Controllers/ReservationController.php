@@ -137,14 +137,39 @@ class ReservationController extends Controller
             ->with('success', 'Reservation created.');
     }
 
-    public function show(Reservation $reservation): Response
+    public function show(Request $request, Reservation $reservation): Response
     {
         $reservation->load('priest', 'location', 'requirements', 'rotaAssignments', 'creator', 'updater');
 
         return Inertia::render('Reservations/Show', [
             'reservation' => $reservation,
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
+            // Where the admin came from (Archives vs Reservations list), including
+            // that list's search/filter/pagination state, so "Back to List" can
+            // return them to the exact page they were on instead of always
+            // bouncing to /reservations. Only a same-site relative path is ever
+            // trusted here — see isSafeReturnUrl().
+            'from' => $this->safeReturnUrl($request->query('from')),
         ]);
+    }
+
+    /**
+     * Only allow relative, same-site paths (e.g. "/archives?search=Tan") to be
+     * used as a return URL. Rejects absolute/external URLs so this can't be
+     * abused as an open redirect.
+     */
+    protected function safeReturnUrl(?string $url): ?string
+    {
+        if (! $url) {
+            return null;
+        }
+
+        // Must start with a single "/" (relative path) and not "//" (protocol-relative, i.e. external).
+        if (! str_starts_with($url, '/') || str_starts_with($url, '//')) {
+            return null;
+        }
+
+        return $url;
     }
 
     /**

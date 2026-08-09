@@ -12,6 +12,23 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    // Relative URL of the list page (Archives or Reservations) this record
+    // was opened from, filters/search/page and all — set by the controller
+    // from the ?from= query param. Falls back to the plain Reservations
+    // list when it's missing (e.g. the page was opened/reloaded directly).
+    from: {
+        type: String,
+        default: null,
+    },
+});
+
+const backHref = computed(() => props.from || route('reservations.index'));
+
+const backLabel = computed(() => {
+    if (props.from && props.from.startsWith('/archives')) {
+        return 'Back to Archives';
+    }
+    return 'Back to Reservations';
 });
 
 const typeLabels = {
@@ -392,10 +409,10 @@ function submitCorrection() {
                         Correct Record
                     </button>
                     <Link
-                        :href="route('reservations.index')"
+                        :href="backHref"
                         class="rounded-full bg-[#8CA089] px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-sm shadow-[#8CA089]/30 transition hover:-translate-y-0.5 hover:bg-[#7c9078] hover:shadow-md"
                     >
-                        Back to List
+                        {{ backLabel }}
                     </Link>
                 </div>
 
