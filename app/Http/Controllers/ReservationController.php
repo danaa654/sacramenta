@@ -84,7 +84,7 @@ class ReservationController extends Controller
     {
         return Inertia::render('Reservations/Create', [
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
-            'locations' => Location::where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'locations' => Location::where('is_active', true)->orderBy('name')->get(['id', 'name', 'kind']),
             'chapels' => $this->chapels,
             // Populated when arriving from the Calendar page's "click an empty day" flow.
             'date' => $request->query('date'),
@@ -230,7 +230,7 @@ class ReservationController extends Controller
         return Inertia::render('Reservations/Edit', [
             'reservation' => $reservation,
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
-            'locations' => Location::where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'locations' => Location::where('is_active', true)->orderBy('name')->get(['id', 'name', 'kind']),
             'chapels' => $this->chapels,
         ]);
     }
@@ -590,7 +590,8 @@ class ReservationController extends Controller
                 $reservation->event_date->format('Y-m-d'),
                 substr((string) $reservation->event_time, 0, 5),
                 $reservation->type,
-                $reservation->id
+                $reservation->id,
+                $reservation->details ?? []
             );
 
             if ($conflict) {
@@ -609,7 +610,8 @@ class ReservationController extends Controller
                 $reservation->event_date->format('Y-m-d'),
                 substr((string) $reservation->event_time, 0, 5),
                 $reservation->type,
-                $reservation->id
+                $reservation->id,
+                $reservation->details ?? []
             );
 
             if ($conflict) {
@@ -625,7 +627,8 @@ class ReservationController extends Controller
                 $reservation->event_date->format('Y-m-d'),
                 substr((string) $reservation->event_time, 0, 5),
                 $reservation->type,
-                $reservation->id
+                $reservation->id,
+                $reservation->details ?? []
             );
 
             if ($conflict) {

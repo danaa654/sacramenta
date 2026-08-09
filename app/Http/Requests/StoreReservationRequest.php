@@ -175,6 +175,7 @@ class StoreReservationRequest extends FormRequest
 
         $service = app(SchedulingConflictService::class);
         $currentReservation = $this->route('reservation');
+        $details = (array) $this->input('details', []);
 
         $priestId = $this->input('priest_id');
 
@@ -184,7 +185,8 @@ class StoreReservationRequest extends FormRequest
                 $date,
                 $time,
                 $type,
-                $currentReservation?->id
+                $currentReservation?->id,
+                $details
             );
 
             if ($conflict) {
@@ -209,7 +211,8 @@ class StoreReservationRequest extends FormRequest
                 $date,
                 $time,
                 $type,
-                $currentReservation?->id
+                $currentReservation?->id,
+                $details
             );
 
             if ($conflict) {
@@ -234,7 +237,8 @@ class StoreReservationRequest extends FormRequest
                 $date,
                 $time,
                 $type,
-                $currentReservation?->id
+                $currentReservation?->id,
+                $details
             );
 
             if ($conflict) {

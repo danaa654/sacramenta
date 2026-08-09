@@ -44,6 +44,8 @@ class Reservation extends Model
         'display_name',
         'participants',
         'is_locked',
+        'venue_category',
+        'venue_category_label',
     ];
 
     protected $casts = [
@@ -107,6 +109,52 @@ class Reservation extends Model
     public function getIsLockedAttribute(): bool
     {
         return in_array($this->status, ['completed', 'archived'], true);
+    }
+
+    /**
+     * Which of the four venue-usage categories this reservation falls
+     * into, driven by the actual selected venue (location_id + its
+     * Location::kind) rather than by reservation `type`. A Wedding and a
+     * Baptism are pinned to the Main Sanctuary automatically (see
+     * StoreReservationRequest::MAIN_SANCTUARY_TYPES), but a School Mass,
+     * House Blessing, Business Blessing, or Vehicle Blessing carries
+     * whatever venue (or lack of one) the admin actually selected — so
+     * two reservations of the same type can land in different categories
+     * here, and that's the point: it's the venue that determines whether
+     * something blocks the Main Sanctuary, not the sacrament type.
+     *
+     * Returns one of: 'main_sanctuary', 'chapel', 'other_venue', 'none'.
+     * ('chapel' here means an on-site Location marked kind=chapel — NOT
+     * the free-text kapilya/barangay chapel used by Chapel Mass, which
+     * has no location_id and so falls under 'none'.)
+     */
+    public function getVenueCategoryAttribute(): string
+    {
+        $location = $this->location; // uses the eager-loaded relation when present
+
+        if (! $location) {
+            return 'none';
+        }
+
+        return match ($location->kind ?? 'other') {
+            'main_sanctuary' => 'main_sanctuary',
+            'chapel' => 'chapel',
+            default => 'other_venue',
+        };
+    }
+
+    /**
+     * Human-readable label for venue_category, for the admin Show page and
+     * any reservation-list/report views.
+     */
+    public function getVenueCategoryLabelAttribute(): string
+    {
+        return match ($this->venue_category) {
+            'main_sanctuary' => 'Main Sanctuary',
+            'chapel' => 'Chapel',
+            'other_venue' => 'Other Venue/Location',
+            default => 'No Church Venue Used',
+        };
     }
 
     /**

@@ -31,12 +31,20 @@ class ChurchAvailabilityController extends Controller
             'time' => ['nullable', 'date_format:H:i'],
             'exclude' => ['nullable', 'integer'],
             'location_id' => ['nullable', 'integer'],
+            // JSON-encoded subset of the in-progress reservation's `details`
+            // (ceremony_type / baptism_type / children / booking_mode /
+            // students) — just enough for ReservationDuration to size a
+            // Wedding/Baptism/First Communion slot correctly before it's
+            // saved. Optional: falls back to the flat per-type duration
+            // when absent, same as before this existed.
+            'details' => ['nullable', 'string'],
         ]);
 
         $date = $validated['date'];
         $type = $validated['type'] ?? null;
         $excludeId = $validated['exclude'] ?? null;
         $locationId = $validated['location_id'] ?? null;
+        $details = json_decode($validated['details'] ?? '', true) ?: [];
 
         $blocked = $this->engine->isBlocked($date, $locationId);
 
@@ -52,13 +60,13 @@ class ChurchAvailabilityController extends Controller
             // The Event Time dropdown's only source of selectable options —
             // administrators may never type an arbitrary time. Empty when
             // no type is known yet, or when the date is blocked.
-            'available_slots' => $type ? $this->engine->availableSlots($date, $type, $excludeId, $locationId) : [],
+            'available_slots' => $type ? $this->engine->availableSlots($date, $type, $excludeId, $locationId, 15, $details) : [],
             'conflict' => null,
             'suggestions' => [],
         ];
 
         if ($type && ($validated['time'] ?? null)) {
-            $conflict = $this->engine->findConflict($date, $validated['time'], $type, $excludeId, $locationId);
+            $conflict = $this->engine->findConflict($date, $validated['time'], $type, $excludeId, $locationId, $details);
 
             if ($conflict) {
                 $response['conflict'] = [
@@ -69,13 +77,13 @@ class ChurchAvailabilityController extends Controller
                     'reservation_id' => $conflict['reservation_id'],
                 ];
 
-                $response['suggestions'] = $this->engine->suggestSlots($date, $type, $excludeId, $locationId);
+                $response['suggestions'] = $this->engine->suggestSlots($date, $type, $excludeId, $locationId, 3, 14, $details);
             }
         } elseif ($blocked) {
             // Blocked date with no specific time picked yet — still worth
             // surfacing nearby alternatives if a type is known.
             $response['suggestions'] = $type
-                ? $this->engine->suggestSlots($date, $type, $excludeId, $locationId)
+                ? $this->engine->suggestSlots($date, $type, $excludeId, $locationId, 3, 14, $details)
                 : [];
         }
 

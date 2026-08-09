@@ -37,10 +37,9 @@ class ChurchAvailabilityService
      */
     protected const BLOCKING_STATUSES = ['confirmed'];
 
-    public function durationMinutes(string $type): int
+    public function durationMinutes(string $type, array $details = []): int
     {
-        return (int) (config("reservation_requirements.durations.{$type}")
-            ?? config('reservation_requirements.durations.default', 30));
+        return \App\Support\ReservationDuration::minutes($type, $details);
     }
 
     public function label(string $type): string
@@ -104,7 +103,7 @@ class ChurchAvailabilityService
                 'reservation_id' => $r->id,
                 'reservation_number' => $r->id ? 'RES-'.str_pad((string) $r->id, 5, '0', STR_PAD_LEFT) : null,
                 'start' => $start,
-                'end' => $start->copy()->addMinutes($this->durationMinutes($r->type)),
+                'end' => $start->copy()->addMinutes($this->durationMinutes($r->type, $r->details ?? [])),
                 'priest' => $r->priest?->name,
                 'status' => $r->status,
                 'priority' => $this->priority($r->type),
@@ -204,13 +203,14 @@ class ChurchAvailabilityService
         string $type,
         ?int $excludeReservationId = null,
         ?int $locationId = null,
-        int $stepMinutes = 15
+        int $stepMinutes = 15,
+        array $details = []
     ): array {
         if ($this->isBlocked($date, $locationId)) {
             return [];
         }
 
-        $needed = $this->durationMinutes($type);
+        $needed = $this->durationMinutes($type, $details);
         $slots = [];
 
         foreach ($this->freeSlots($date, $excludeReservationId, $locationId) as $slot) {
@@ -268,14 +268,15 @@ class ChurchAvailabilityService
         string $time,
         string $type,
         ?int $excludeReservationId = null,
-        ?int $locationId = null
+        ?int $locationId = null,
+        array $details = []
     ): ?array {
         if (! $this->occupiesChurch($type)) {
             return null;
         }
 
         $start = Carbon::parse("{$date} {$time}");
-        $end = $start->copy()->addMinutes($this->durationMinutes($type));
+        $end = $start->copy()->addMinutes($this->durationMinutes($type, $details));
 
         foreach ($this->occupiedPeriods($date, $excludeReservationId, $locationId) as $period) {
             if ($start->lt($period['end']) && $period['start']->lt($end)) {
@@ -300,9 +301,10 @@ class ChurchAvailabilityService
         ?int $excludeReservationId = null,
         ?int $locationId = null,
         int $limit = 3,
-        int $searchDays = 14
+        int $searchDays = 14,
+        array $details = []
     ): array {
-        $needed = $this->durationMinutes($type);
+        $needed = $this->durationMinutes($type, $details);
         $suggestions = [];
         $anchor = Carbon::parse($date);
 

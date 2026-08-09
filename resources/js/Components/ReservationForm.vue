@@ -592,6 +592,24 @@ const conflictWarning = computed(() => {
 const availableEventTimes = ref([]);
 const loadingEventTimes = ref(false);
 
+// Only the fields ReservationDuration (backend) actually reads for a
+// duration-affecting variant — kept minimal so the ?details= query string
+// stays small and stable (e.g. typing a contact name doesn't retrigger it).
+function durationRelevantDetails() {
+    const d = form.details ?? {};
+
+    if (form.type === 'wedding') {
+        return { ceremony_type: d.ceremony_type };
+    }
+    if (form.type === 'baptism') {
+        return { baptism_type: d.baptism_type, children: d.children ?? [] };
+    }
+    if (form.type === 'first_communion') {
+        return { booking_mode: d.booking_mode, students: d.students ?? [] };
+    }
+    return {};
+}
+
 async function refreshAvailableEventTimes() {
     if (!form.event_date || !form.type || form.type === 'pamisa_sa_kalag') {
         availableEventTimes.value = [];
@@ -607,6 +625,7 @@ async function refreshAvailableEventTimes() {
                 type: form.type,
                 exclude: props.reservation?.id ?? undefined,
                 location_id: form.location_id || undefined,
+                details: JSON.stringify(durationRelevantDetails()),
             },
         });
         availableEventTimes.value = data.available_slots ?? [];
@@ -625,7 +644,16 @@ async function refreshAvailableEventTimes() {
 }
 
 watch(
-    () => [form.event_date, form.type, form.location_id],
+    () => [
+        form.event_date,
+        form.type,
+        form.location_id,
+        form.details?.ceremony_type,
+        form.details?.baptism_type,
+        form.details?.children?.length,
+        form.details?.booking_mode,
+        form.details?.students?.length,
+    ],
     refreshAvailableEventTimes,
     { immediate: true }
 );

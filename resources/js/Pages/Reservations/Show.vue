@@ -465,7 +465,21 @@ function submitCorrection() {
                         </div>
                         <div>
                             <dt class="field-label">Venue</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.location?.name ?? 'Unassigned' }}</dd>
+                            <dd class="mt-1 text-sm text-[#2f4a4a]">
+                                {{ reservation.location?.name ?? 'Unassigned' }}
+                                <span
+                                    v-if="reservation.venue_category_label"
+                                    class="ml-2 inline-block rounded-full px-2 py-0.5 text-xs font-medium"
+                                    :class="{
+                                        'bg-amber-100 text-amber-800': reservation.venue_category === 'main_sanctuary',
+                                        'bg-sky-100 text-sky-800': reservation.venue_category === 'chapel',
+                                        'bg-slate-100 text-slate-700': reservation.venue_category === 'other_venue',
+                                        'bg-gray-100 text-gray-500': reservation.venue_category === 'none',
+                                    }"
+                                >
+                                    {{ reservation.venue_category_label }}
+                                </span>
+                            </dd>
                         </div>
                         <div>
                             <dt class="field-label">Offering Amount</dt>

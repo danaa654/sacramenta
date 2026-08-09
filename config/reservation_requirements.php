@@ -121,4 +121,48 @@ return [
         'special_intention' => 30,
     ],
 
+    /**
+     * Wedding duration depends on which ceremony the couple chose (see
+     * ReservationForm.vue `details.ceremony_type`). A Liturgy of the Word
+     * (no Mass, no Communion) runs noticeably shorter than a full Nuptial
+     * Mass. `durations.wedding` above (90) remains the fallback used only
+     * when `ceremony_type` is missing (e.g. legacy records).
+     */
+    'durations_wedding' => [
+        'nuptial_mass' => 90,
+        'liturgy_of_the_word' => 45,
+    ],
+
+    /**
+     * Baptism duration depends on `details.baptism_type`. A Group/Community
+     * Baptism takes longer the more children are being baptized — base
+     * time for the shared parts of the rite, plus a per-child increment for
+     * the individual anointing/naming portion, capped at `max` so an
+     * unusually large group still books a bounded, sane block of church
+     * time instead of ballooning indefinitely.
+     */
+    'durations_baptism' => [
+        'individual' => 30,
+        'group' => [
+            'base' => 45,
+            'per_child' => 5,
+            'max' => 150,
+        ],
+    ],
+
+    /**
+     * First Communion duration depends on `details.booking_mode`. A
+     * School/Group batch takes longer with more students (extra time to
+     * process each child through the rite), capped at `max` for the same
+     * reason as the Baptism group cap above.
+     */
+    'durations_first_communion' => [
+        'individual' => 45,
+        'school_batch' => [
+            'base' => 60,
+            'per_student' => 2,
+            'max' => 180,
+        ],
+    ],
+
 ];

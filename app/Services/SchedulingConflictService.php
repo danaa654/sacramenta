@@ -19,10 +19,9 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class SchedulingConflictService
 {
-    public function durationFor(?string $type): int
+    public function durationFor(?string $type, array $details = []): int
     {
-        return config("reservation_requirements.durations.{$type}")
-            ?? config('reservation_requirements.durations.default', 30);
+        return \App\Support\ReservationDuration::minutes($type, $details);
     }
 
     /**
@@ -34,14 +33,16 @@ class SchedulingConflictService
         string $date,
         string $time,
         string $type,
-        ?int $excludeId = null
+        ?int $excludeId = null,
+        array $details = []
     ): ?Reservation {
         return $this->findConflict(
             Reservation::query()->where('priest_id', $priestId),
             $date,
             $time,
             $type,
-            $excludeId
+            $excludeId,
+            $details
         );
     }
 
@@ -58,14 +59,16 @@ class SchedulingConflictService
         string $date,
         string $time,
         string $type,
-        ?int $excludeId = null
+        ?int $excludeId = null,
+        array $details = []
     ): ?Reservation {
         return $this->findConflict(
             Reservation::query()->where('location_id', $locationId),
             $date,
             $time,
             $type,
-            $excludeId
+            $excludeId,
+            $details
         );
     }
 
@@ -78,7 +81,8 @@ class SchedulingConflictService
         string $date,
         string $time,
         string $type,
-        ?int $excludeId = null
+        ?int $excludeId = null,
+        array $details = []
     ): ?Reservation {
         return $this->findConflict(
             Reservation::query()
@@ -87,7 +91,8 @@ class SchedulingConflictService
             $date,
             $time,
             $type,
-            $excludeId
+            $excludeId,
+            $details
         );
     }
 
@@ -96,9 +101,10 @@ class SchedulingConflictService
         string $date,
         string $time,
         string $type,
-        ?int $excludeId
+        ?int $excludeId,
+        array $details = []
     ): ?Reservation {
-        $duration = $this->durationFor($type);
+        $duration = $this->durationFor($type, $details);
         $start = Carbon::parse("{$date} {$time}");
         $end = $start->copy()->addMinutes($duration);
 
@@ -112,7 +118,7 @@ class SchedulingConflictService
                 $existingStart = Carbon::parse(
                     $existing->event_date->format('Y-m-d').' '.$existing->event_time
                 );
-                $existingEnd = $existingStart->copy()->addMinutes($this->durationFor($existing->type));
+                $existingEnd = $existingStart->copy()->addMinutes($this->durationFor($existing->type, $existing->details ?? []));
 
                 return $start->lt($existingEnd) && $existingStart->lt($end);
             });
