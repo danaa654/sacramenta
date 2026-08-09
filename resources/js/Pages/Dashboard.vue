@@ -20,7 +20,10 @@ const props = defineProps({
     recentActivity: { type: Array, default: () => [] },
     financialOverview: {
         type: Object,
-        default: () => ({ offerings: 0, collected: 0, outstanding: 0, series: [] }),
+        default: () => ({
+            month: { offerings: 0, collected: 0, outstanding: 0, series: [] },
+            year: { offerings: 0, collected: 0, outstanding: 0, series: [] },
+        }),
     },
 });
 
@@ -164,9 +167,15 @@ function isMassLive(day, time) {
 const today = new Date();
 const todayIso = today.toISOString().slice(0, 10);
 
+// Financial Overview toggles between "This Month" and "This Year", mirroring
+// the Completed stat card's month/year toggle above — no extra request,
+// both windows are already provided by the server.
+const financialPeriod = ref('month');
+const activeFinancialOverview = computed(() => props.financialOverview[financialPeriod.value] ?? { offerings: 0, collected: 0, outstanding: 0, series: [] });
+
 // Financial sparkline path, scaled to the widget's viewbox.
 const sparkline = computed(() => {
-    const series = props.financialOverview.series ?? [];
+    const series = activeFinancialOverview.value.series ?? [];
     if (series.length < 2) return { points: '', area: '' };
 
     const values = series.map((p) => Number(p.amount));
@@ -507,23 +516,32 @@ const sparkline = computed(() => {
                     <div class="rounded-2xl border border-white/80 bg-white/90 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
                         <div class="flex items-center justify-between border-b border-[#3f6470]/10 px-6 py-4 dark:border-white/10">
                             <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-white">Financial Overview</h3>
-                            <Link :href="route('financials.index')" class="text-xs font-semibold uppercase tracking-wide text-[#4f7a4a] hover:underline">
-                                This Month
-                            </Link>
+                            <div class="flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    @click="financialPeriod = financialPeriod === 'month' ? 'year' : 'month'"
+                                    class="text-xs font-semibold uppercase tracking-wide text-[#4f7a4a] hover:underline"
+                                >
+                                    {{ financialPeriod === 'month' ? 'This Month' : 'This Year' }}
+                                </button>
+                                <Link :href="route('financials.index')" class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/50 hover:underline dark:text-slate-400">
+                                    View Ledger
+                                </Link>
+                            </div>
                         </div>
                         <div class="px-6 py-4">
                             <div class="grid grid-cols-3 gap-3 text-center">
                                 <div>
                                     <p class="text-[11px] font-semibold uppercase tracking-wide text-[#4f7a4a]">Offerings</p>
-                                    <p class="mt-1 font-serif text-lg font-medium text-[#173528] dark:text-white">{{ formatMoney(financialOverview.offerings) }}</p>
+                                    <p class="mt-1 font-serif text-lg font-medium text-[#173528] dark:text-white">{{ formatMoney(activeFinancialOverview.offerings) }}</p>
                                 </div>
                                 <div>
                                     <p class="text-[11px] font-semibold uppercase tracking-wide text-[#6B4FA0]">Collected</p>
-                                    <p class="mt-1 font-serif text-lg font-medium text-[#173528] dark:text-white">{{ formatMoney(financialOverview.collected) }}</p>
+                                    <p class="mt-1 font-serif text-lg font-medium text-[#173528] dark:text-white">{{ formatMoney(activeFinancialOverview.collected) }}</p>
                                 </div>
                                 <div>
                                     <p class="text-[11px] font-semibold uppercase tracking-wide text-[#B8492E]">Outstanding</p>
-                                    <p class="mt-1 font-serif text-lg font-medium text-[#173528] dark:text-white">{{ formatMoney(financialOverview.outstanding) }}</p>
+                                    <p class="mt-1 font-serif text-lg font-medium text-[#173528] dark:text-white">{{ formatMoney(activeFinancialOverview.outstanding) }}</p>
                                 </div>
                             </div>
 
@@ -533,7 +551,7 @@ const sparkline = computed(() => {
                                     <polyline :points="sparkline.points" fill="none" stroke="#4f7a4a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
                                 </svg>
                                 <p v-else class="flex h-24 items-center justify-center text-sm text-[#3f6470]/50 dark:text-slate-500">
-                                    No payments recorded yet this month.
+                                    {{ financialPeriod === 'month' ? 'No payments recorded yet this month.' : 'No payments recorded yet this year.' }}
                                 </p>
                             </div>
                         </div>

@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 return new class extends Migration
 {
     protected array $defaults = [
-        'Main Sanctuary',
+        'Parish of the Holy Sacraments',
         'Parish Hall',
         'Chapel',
         'San Isidro Chapel',

@@ -5,7 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Physical spaces the parish can double-book: Main Sanctuary, Parish Hall,
+ * Physical spaces the parish can double-book: Parish of the Holy Sacraments, Parish Hall,
  * Chapel, plus any barangay/kapilya chapels. Generalizes what the
  * chapel_mass-only `details->chapel` string used to do, so ANY reservation
  * type (wedding, burial, school_mass, etc.) can be pinned to a venue and

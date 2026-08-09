@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\CalendarController;
+use App\Http\Controllers\ChurchAvailabilityController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinancialsController;
 use App\Http\Controllers\MassScheduleController;
@@ -47,6 +48,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // "availability" as if it were a reservation ID.
     Route::get('reservations/availability', [ReservationController::class, 'availability'])
         ->name('reservations.availability');
+
+    // Real Mass Schedule occurrences for a date — powers the Pamisa sa
+    // Kalag "attach to an existing Mass" dropdown with actual mass_schedules
+    // rows instead of a hardcoded placeholder.
+    Route::get('reservations/mass-schedules', [ReservationController::class, 'massSchedules'])
+        ->name('reservations.mass-schedules');
+
+    // Church Availability & Conflict Detection Engine: whole-day occupied/
+    // available timeline, live conflict check, and nearest-slot suggestions.
+    Route::get('church-availability', [ChurchAvailabilityController::class, 'day'])
+        ->name('church-availability.day');
 
     Route::get('reservations/{reservation}/receipt', [ReservationController::class, 'receipt'])
         ->name('reservations.receipt');

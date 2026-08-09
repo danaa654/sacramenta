@@ -71,6 +71,27 @@ function formatTime(time) {
     return `${hour12}:${m} ${suffix}`;
 }
 
+// Administrative "Created On" / "Last Updated" timestamps — Laravel's own
+// created_at/updated_at, set automatically by the system. Never confused
+// with event_date/event_time (the EVENT schedule) shown above.
+function formatDateTime(value) {
+    if (!value) return '—';
+    return new Date(value).toLocaleString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
+const statusLabels = {
+    draft: 'Draft',
+    confirmed: 'Confirmed',
+    completed: 'Completed',
+    archived: 'Cancelled',
+};
+
 function detailLabel(key) {
     return key
         .split('_')
@@ -317,11 +338,11 @@ const confirmTooltip = computed(() => {
                             <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.contact_address || '—' }}</dd>
                         </div>
                         <div>
-                            <dt class="field-label">Date</dt>
+                            <dt class="field-label">Event Date</dt>
                             <dd class="mt-1 text-sm text-[#2f4a4a]">{{ formatDate(reservation.event_date) }}</dd>
                         </div>
                         <div>
-                            <dt class="field-label">Time</dt>
+                            <dt class="field-label">Event Time</dt>
                             <dd class="mt-1 text-sm text-[#2f4a4a]">{{ formatTime(reservation.event_time) }}</dd>
                         </div>
                         <div>
@@ -677,13 +698,52 @@ const confirmTooltip = computed(() => {
                             </button>
 
                             <button
+                                v-if="reservation.status !== 'archived' && reservation.status !== 'completed'"
                                 type="button"
                                 @click="deleteReservation"
                                 class="w-full rounded-full border border-red-200 bg-red-50 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-red-600 transition hover:bg-red-100"
                             >
                                 Delete Reservation
                             </button>
+                            <p v-else class="text-center text-xs text-[#3f6470]/50 dark:text-slate-500">
+                                Completed reservations can't be deleted — they're the record certificates are generated from. Archive it instead if it needs to be filed away.
+                            </p>
                         </div>
+                    </div>
+
+                    <!-- Administrative reservation RECORD metadata — distinct from the
+                         EVENT schedule (Event Date/Time) shown above. Every field here
+                         is system-generated and read-only; nothing here is entered by
+                         the administrator. -->
+                    <div class="mt-6 rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm">
+                        <h3 class="font-serif text-xl font-medium text-[#3f6470]">Reservation Information</h3>
+
+                        <dl class="mt-5 space-y-4">
+                            <div>
+                                <dt class="field-label">Reservation Number</dt>
+                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.reservation_number ?? '—' }}</dd>
+                            </div>
+                            <div>
+                                <dt class="field-label">Status</dt>
+                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ statusLabels[reservation.status] ?? reservation.status }}</dd>
+                            </div>
+                            <div>
+                                <dt class="field-label">Created On</dt>
+                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ formatDateTime(reservation.created_at) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="field-label">Created By</dt>
+                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.creator?.name ?? '—' }}</dd>
+                            </div>
+                            <div>
+                                <dt class="field-label">Last Updated</dt>
+                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ formatDateTime(reservation.updated_at) }}</dd>
+                            </div>
+                            <div v-if="reservation.updater">
+                                <dt class="field-label">Updated By</dt>
+                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.updater?.name ?? '—' }}</dd>
+                            </div>
+                        </dl>
                     </div>
                 </div>
 

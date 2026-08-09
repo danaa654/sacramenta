@@ -162,9 +162,14 @@
             text-align: center;
         }
         @media print {
+            @page {
+                size: landscape;
+                margin: 12mm;
+            }
             body { background: #fff; padding: 0; }
             .toolbar { display: none; }
-            .certificate { border: 2px solid #b7a970; border-radius: 0; margin: 0; max-width: 100%; }
+            .certificate { border: 2px solid #b7a970; border-radius: 0; margin: 0; max-width: 100%; page-break-after: always; }
+            .certificate:last-of-type { page-break-after: auto; }
         }
     </style>
 </head>

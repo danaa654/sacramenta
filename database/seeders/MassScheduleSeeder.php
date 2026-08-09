@@ -11,7 +11,7 @@ class MassScheduleSeeder extends Seeder
     public function run(): void
     {
         $mainSanctuary = Location::firstOrCreate(
-            ['name' => 'Main Sanctuary'],
+            ['name' => 'Parish of the Holy Sacraments'],
             ['is_active' => true]
         );
 

@@ -5,10 +5,14 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreReservationRequest;
 use App\Mail\ReservationConfirmed;
 use App\Models\Location;
+use App\Models\MassSchedule;
 use App\Models\Priest;
 use App\Models\Reservation;
+use App\Services\AuditLogger;
+use App\Services\ChurchAvailabilityService;
 use App\Services\NotificationDispatcher;
 use App\Services\SchedulingConflictService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,7 +25,8 @@ class ReservationController extends Controller
 {
     public function __construct(
         protected SchedulingConflictService $conflicts,
-        protected NotificationDispatcher $notifier
+        protected NotificationDispatcher $notifier,
+        protected ChurchAvailabilityService $availabilityEngine
     ) {
     }
 
@@ -92,7 +97,31 @@ class ReservationController extends Controller
         $data['details'] = $this->cleanDetails($data['type'], $data['details'] ?? []);
         $data['status'] = 'draft';
 
+        // Reservation Created Date & Time is never entered by the
+        // administrator — it's Laravel's own created_at timestamp, set the
+        // instant Reservation::create() below runs. We only need to record
+        // *who* created it.
+        $data['created_by'] = $request->user()?->id;
+
+        // The Church Availability & Conflict Detection Engine already
+        // blocked this submission in StoreReservationRequest if it
+        // collided with something and wasn't explicitly overridden. If we
+        // got here with override_conflict=true, record who overrode it and
+        // why, both on the reservation and in the audit log.
+        if ($request->boolean('override_conflict')) {
+            $data['conflict_overridden'] = true;
+            $data['override_reason'] = $request->input('override_reason');
+            $data['overridden_by'] = $request->user()?->id;
+            $data['overridden_at'] = now();
+        }
+
         $reservation = Reservation::create($data);
+
+        AuditLogger::reservationCreated($reservation);
+
+        if ($request->boolean('override_conflict')) {
+            AuditLogger::conflictOverridden($reservation, (string) $request->input('override_reason'));
+        }
 
         $this->seedRequirements($reservation);
 
@@ -110,7 +139,7 @@ class ReservationController extends Controller
 
     public function show(Reservation $reservation): Response
     {
-        $reservation->load('priest', 'location', 'requirements', 'rotaAssignments');
+        $reservation->load('priest', 'location', 'requirements', 'rotaAssignments', 'creator', 'updater');
 
         return Inertia::render('Reservations/Show', [
             'reservation' => $reservation,
@@ -176,7 +205,25 @@ class ReservationController extends Controller
         $data = $request->validated();
         $data['details'] = $this->cleanDetails($data['type'], $data['details'] ?? []);
 
+        // Reservation Updated Date & Time is Laravel's own updated_at
+        // timestamp, set automatically by $reservation->update() below —
+        // we only need to record *who* made the change.
+        $data['updated_by'] = $request->user()?->id;
+
+        if ($request->boolean('override_conflict')) {
+            $data['conflict_overridden'] = true;
+            $data['override_reason'] = $request->input('override_reason');
+            $data['overridden_by'] = $request->user()?->id;
+            $data['overridden_at'] = now();
+        }
+
         $reservation->update($data);
+
+        AuditLogger::reservationUpdated($reservation);
+
+        if ($request->boolean('override_conflict')) {
+            AuditLogger::conflictOverridden($reservation, (string) $request->input('override_reason'));
+        }
 
         return redirect()->route('reservations.index')
             ->with('success', 'Reservation updated.');
@@ -184,12 +231,26 @@ class ReservationController extends Controller
 
     public function destroy(Request $request, Reservation $reservation): RedirectResponse
     {
+        // A completed (or already archived) reservation is a parish
+        // record — it's what a certificate or the Archives page is
+        // generated from. Deleting it would silently break "find the
+        // baptism/wedding record to print a certificate" later, so it
+        // can only be filed away (Archive), never hard-deleted. Only
+        // draft/confirmed reservations that haven't happened yet — a
+        // genuine booking mistake — are deletable.
+        if (in_array($reservation->status, ['completed', 'archived'], true)) {
+            return redirect()->route('reservations.show', $reservation)
+                ->with('error', 'Completed reservations can\'t be deleted — they\'re the record a certificate is generated from. Use Archive instead if it needs to be filed away.');
+        }
+
         $this->notifier->notifyAdmins(
             kind: 'cancelled',
             title: 'Reservation cancelled',
             body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} was cancelled.",
             except: $request->user()
         );
+
+        AuditLogger::reservationCancelled($reservation);
 
         $reservation->delete();
 
@@ -254,6 +315,7 @@ class ReservationController extends Controller
         $reservation->update([
             'status' => $validated['status'],
             'archive_reason' => $archiveReason,
+            'updated_by' => $request->user()?->id,
         ]);
 
         if ($validated['status'] === 'confirmed' && ! $wasConfirmed) {
@@ -301,6 +363,7 @@ class ReservationController extends Controller
         $reservation->status = $validated['status'];
         $reservation->archive_reason = $archiveReason;
         $reservation->payment_status = $validated['payment_status'];
+        $reservation->updated_by = $request->user()?->id;
 
         // The Financials "Record Payment" drawer always asks for Status and
         // Amount Paid together, so those two can never drift apart there.
@@ -528,14 +591,14 @@ class ReservationController extends Controller
                 ->values();
         }
 
-        // Wedding, Baptism, and Burial all share the single Main Sanctuary
-        // venue, so any confirmed reservation of these three types on the
-        // same date blocks a slot for the others too — same idea as the
-        // per-priest / per-chapel checks above.
+        // Wedding, Baptism, and Burial all share the single Parish of the
+        // Holy Sacraments venue, so any confirmed reservation of these
+        // three types on the same date blocks a slot for the others too —
+        // same idea as the per-priest / per-chapel checks above.
         $takenVenue = collect();
 
         if (in_array($validated['type'] ?? null, ['wedding', 'baptism', 'burial'], true)) {
-            $mainSanctuaryId = Location::where('name', 'Main Sanctuary')->value('id');
+            $mainSanctuaryId = Location::where('name', 'Parish of the Holy Sacraments')->value('id');
 
             if ($mainSanctuaryId) {
                 $takenVenue = Reservation::query()
@@ -556,6 +619,47 @@ class ReservationController extends Controller
             'takenChapel' => $takenChapel,
             'takenVenue' => $takenVenue,
         ]);
+    }
+
+    /**
+     * GET /reservations/mass-schedules?date=YYYY-MM-DD
+     *
+     * Real Mass Schedule occurrences (from the mass_schedules table) that
+     * apply to the given date's weekday — this is what Pamisa sa Kalag
+     * attaches to (see the "PAMISA SA KALAG" workflow: it must be attached
+     * to an existing Mass Schedule, never book independent church time).
+     * Returns each as {id, start_time, mass_type, label}, where `id` is
+     * the mass_schedules.id that reservations.mass_schedule_id points to.
+     */
+    public function massSchedules(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+        ]);
+
+        $weekday = Carbon::parse($validated['date'])->dayOfWeek;
+
+        $schedules = MassSchedule::query()
+            ->where('is_active', true)
+            ->get()
+            ->filter(fn (MassSchedule $s) => in_array($weekday, $s->days_of_week ?? [], true))
+            ->sortBy('start_time')
+            ->values()
+            ->map(fn (MassSchedule $s) => [
+                'id' => $s->id,
+                'start_time' => substr($s->start_time, 0, 5),
+                'mass_type' => $s->label,
+                'label' => $this->formatMassScheduleLabel($s),
+            ]);
+
+        return response()->json(['schedules' => $schedules]);
+    }
+
+    protected function formatMassScheduleLabel(MassSchedule $schedule): string
+    {
+        $time = Carbon::createFromFormat('H:i:s', $schedule->start_time)->format('g:i A');
+
+        return trim("{$time} — {$schedule->label}");
     }
 
     /**

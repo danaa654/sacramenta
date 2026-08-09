@@ -22,7 +22,7 @@ class ReservationSeeder extends Seeder
     {
         $priest = Priest::first() ?? Priest::create(['name' => 'Fr. Miguel Santos', 'status' => 'active']);
         $priest2 = Priest::skip(1)->first() ?? $priest;
-        $mainSanctuary = Location::where('name', 'Main Sanctuary')->first();
+        $mainSanctuary = Location::where('name', 'Parish of the Holy Sacraments')->first();
         $parishHall = Location::where('name', 'Parish Hall')->first();
 
         // Baptism — individual

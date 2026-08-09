@@ -4,6 +4,8 @@ namespace App\Http\Requests;
 
 use App\Models\Location;
 use App\Models\Priest;
+use App\Services\AuditLogger;
+use App\Services\ChurchAvailabilityService;
 use App\Services\SchedulingConflictService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Http\FormRequest;
@@ -31,7 +33,7 @@ class StoreReservationRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (in_array($this->input('type'), self::MAIN_SANCTUARY_TYPES, true) && !$this->input('location_id')) {
-            $mainSanctuary = Location::where('name', 'Main Sanctuary')->first();
+            $mainSanctuary = Location::where('name', 'Parish of the Holy Sacraments')->first();
 
             if ($mainSanctuary) {
                 $this->merge(['location_id' => $mainSanctuary->id]);
@@ -70,6 +72,12 @@ class StoreReservationRequest extends FormRequest
             'priest_id' => ['nullable', 'exists:priests,id'],
             'location_id' => ['nullable', 'exists:locations,id'],
             'offering_amount' => ['nullable', 'numeric', 'min:0'],
+            // Church Availability & Conflict Detection Engine override —
+            // only meaningful when the engine actually found a conflict
+            // (see checkChurchAvailability()); a reason is mandatory
+            // whenever an override is being requested.
+            'override_conflict' => ['nullable', 'boolean'],
+            'override_reason' => ['required_if:override_conflict,1', 'nullable', 'string', 'max:500'],
         ], $this->conditionalRules($type));
     }
 
@@ -82,8 +90,77 @@ class StoreReservationRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {
+            $this->checkChurchAvailability($validator);
             $this->checkSchedulingConflict($validator);
         });
+    }
+
+    /**
+     * Church Availability & Conflict Detection Engine — the primary,
+     * whole-church gate. Runs before the narrower priest/chapel-specific
+     * checks below (which still run for their own, more specific error
+     * messaging). Blocks the submission if:
+     *   - the date falls inside an active BlockedDate period, or
+     *   - the requested date/time/type collides with anything already
+     *     occupying the single church venue (Mass, Wedding, Baptism,
+     *     Burial, First Communion, Confirmation, School Mass, Chapel Mass,
+     *     or another approved church event) — Pamisa sa Kalag is exempt,
+     *     since it attaches to an existing Mass Schedule instead of
+     *     reserving independent time.
+     * An admin can bypass either block by submitting override_conflict=1
+     * with an override_reason; ReservationController records that
+     * override on the reservation and in the audit log. Every prevented
+     * conflict (i.e. not overridden) is also logged.
+     */
+    protected function checkChurchAvailability(Validator $validator): void
+    {
+        $date = $this->input('event_date');
+        $time = $this->input('event_time');
+        $type = $this->input('type');
+
+        if (! $date || ! $type || $type === 'pamisa_sa_kalag') {
+            return;
+        }
+
+        $engine = app(ChurchAvailabilityService::class);
+        $currentReservation = $this->route('reservation');
+        $overriding = $this->boolean('override_conflict');
+        $locationId = $this->input('location_id');
+
+        $blocked = $engine->isBlocked($date, $locationId);
+
+        if ($blocked && ! $overriding) {
+            $validator->errors()->add(
+                'event_date',
+                "{$date} falls within a blocked period — \"{$blocked->title}\"".($blocked->reason ? " ({$blocked->reason})" : '').
+                    '. An administrator can override this with a reason if the reservation must proceed.'
+            );
+
+            AuditLogger::conflictPrevented(
+                "Blocked-date reservation attempt on {$date} during \"{$blocked->title}\" was prevented.",
+                ['date' => $date, 'type' => $type, 'blocked_date_title' => $blocked->title]
+            );
+        }
+
+        if (! $time || ! $engine->occupiesChurch($type)) {
+            return;
+        }
+
+        $conflict = $engine->findConflict($date, $time, $type, $currentReservation?->id, $locationId);
+
+        if ($conflict && ! $overriding) {
+            $conflictTime = $conflict['start']->format('g:i A').' – '.$conflict['end']->format('g:i A');
+
+            $validator->errors()->add(
+                'event_time',
+                "This overlaps with {$conflict['label']} ({$conflictTime}). Choose a different time, or an administrator can override with a reason."
+            );
+
+            AuditLogger::conflictPrevented(
+                "A {$type} reservation attempt on {$date} at {$time} was prevented — overlapped with {$conflict['label']} ({$conflictTime}).",
+                ['date' => $date, 'time' => $time, 'type' => $type, 'conflicting_type' => $conflict['type']]
+            );
+        }
     }
 
     protected function checkSchedulingConflict(Validator $validator): void

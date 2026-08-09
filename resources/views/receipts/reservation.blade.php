@@ -240,7 +240,7 @@
             <img src="{{ asset('img/logo.png') }}" alt="Parish Logo" class="receipt-logo">
             <!-- NOTE: replace with your parish's actual name, address, and logo. -->
             <div>
-                <p class="parish-name">Sacramenta Parish Office</p>
+                <p class="parish-name">Parish of the Holy Sacraments</p>
                 <p class="parish-address">Parish Address Line · Contact Number</p>
             </div>
         </div>

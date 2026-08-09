@@ -2,6 +2,16 @@
 import { computed, ref, watch } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import axios from 'axios';
+import ChurchAvailabilityPanel from '@/Components/ChurchAvailabilityPanel.vue';
+
+// Mirrors config('church_schedule.occupying_types') on the backend — the
+// reservation types that actually occupy the single church venue and are
+// checked by the Church Availability & Conflict Detection Engine. Kept in
+// sync by hand since it only changes if a parish adds a new sacrament type.
+const CHURCH_OCCUPYING_TYPES = [
+    'mass', 'special_mass', 'wedding', 'baptism', 'burial',
+    'first_communion', 'confirmation', 'school_mass', 'chapel_mass',
+];
 
 // Auto-uppercases text as the user types (used on person-name fields only).
 // Runs in the capture phase so the value is already uppercased before
@@ -135,21 +145,6 @@ function selectGridOption(grid) {
     if (grid.types.includes(form.type)) return;
     selectType(grid.types[0]);
 }
-
-// 30-minute slots from 6:00 AM to 7:00 PM
-const timeSlots = (() => {
-    const slots = [];
-    for (let h = 6; h <= 19; h++) {
-        for (const m of [0, 30]) {
-            const hh = String(h).padStart(2, '0');
-            const mm = String(m).padStart(2, '0');
-            const hour12 = ((h + 11) % 12) + 1;
-            const suffix = h >= 12 ? 'PM' : 'AM';
-            slots.push({ value: `${hh}:${mm}`, label: `${hour12}:${mm} ${suffix}` });
-        }
-    }
-    return slots;
-})();
 
 function blankBaptismChild() {
     return { child_name: '', father_name: '', mother_maiden_name: '', godparents: [{ name: '' }] };
@@ -307,6 +302,11 @@ const form = useForm({
     location_id: props.reservation?.location_id ?? '',
     offering_amount: props.reservation?.offering_amount ?? '',
     details: initialDetails(),
+    // Church Availability & Conflict Detection Engine override — only
+    // ever true when ChurchAvailabilityPanel reports a conflict/blocked
+    // date AND the admin has checked "override" and typed a reason.
+    override_conflict: false,
+    override_reason: '',
 });
 
 function selectType(type) {
@@ -564,10 +564,6 @@ watch(
     { immediate: true }
 );
 
-function isSlotTaken(value) {
-    return takenSlots.value.includes(value) || takenChapelSlots.value.includes(value) || takenVenueSlots.value.includes(value);
-}
-
 const conflictWarning = computed(() => {
     if (!form.event_time) return null;
 
@@ -580,11 +576,91 @@ const conflictWarning = computed(() => {
     }
 
     if (takenVenueSlots.value.includes(form.event_time)) {
-        return 'The Main Sanctuary already has a confirmed Wedding, Baptism, or Burial at this time — please pick another slot.';
+        return 'Parish of the Holy Sacraments already has a confirmed Wedding, Baptism, or Burial at this time — please pick another slot.';
     }
 
     return null;
 });
+
+// ---- Event Time options (Availability Engine) ----
+// The administrator may only pick from Event Times the Availability Engine
+// actually generates for the selected Event Date — never free-typed. This
+// loads that list (Regular + Special Mass schedules, existing confirmed
+// reservations, and blocked dates/times are all already folded in
+// server-side by ChurchAvailabilityService::availableSlots()) any time the
+// Event Date, type, or assigned priest/chapel/venue-relevant fields change.
+const availableEventTimes = ref([]);
+const loadingEventTimes = ref(false);
+
+async function refreshAvailableEventTimes() {
+    if (!form.event_date || !form.type || form.type === 'pamisa_sa_kalag') {
+        availableEventTimes.value = [];
+        return;
+    }
+
+    loadingEventTimes.value = true;
+
+    try {
+        const { data } = await axios.get(route('church-availability.day'), {
+            params: {
+                date: form.event_date,
+                type: form.type,
+                exclude: props.reservation?.id ?? undefined,
+                location_id: form.location_id || undefined,
+            },
+        });
+        availableEventTimes.value = data.available_slots ?? [];
+
+        // If the currently-selected Event Time is no longer offered (date
+        // changed, slot got taken, etc.), clear it rather than silently
+        // keeping an arbitrary value the engine no longer allows.
+        if (form.event_time && !availableEventTimes.value.includes(form.event_time)) {
+            form.event_time = '';
+        }
+    } catch (e) {
+        availableEventTimes.value = [];
+    } finally {
+        loadingEventTimes.value = false;
+    }
+}
+
+watch(
+    () => [form.event_date, form.type, form.location_id],
+    refreshAvailableEventTimes,
+    { immediate: true }
+);
+
+function formatEventTimeOption(hhmm) {
+    const [h, m] = hhmm.split(':').map(Number);
+    const hour12 = ((h + 11) % 12) + 1;
+    const suffix = h >= 12 ? 'PM' : 'AM';
+    return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
+}
+
+// ---- Church Availability & Conflict Detection Engine ----
+// ChurchAvailabilityPanel.vue does the actual date/time lookups; this form
+// just needs to know whether the currently-selected type occupies the
+// church at all, and to mirror whatever conflict/override state the panel
+// reports so submit() can send override_conflict + override_reason along
+// with the rest of the form.
+const occupiesChurch = computed(() => CHURCH_OCCUPYING_TYPES.includes(form.type));
+
+const churchConflict = ref(null);
+const churchBlocked = ref(null);
+
+function onChurchConflictChange({ conflict, blocked, overrideReason }) {
+    churchConflict.value = conflict;
+    churchBlocked.value = blocked;
+    form.override_conflict = !!(conflict || blocked) && !!overrideReason;
+    form.override_reason = overrideReason || '';
+}
+
+function onSelectSuggestedSlot(suggestion) {
+    if (suggestion.date && suggestion.date !== form.event_date) {
+        form.event_date = suggestion.date;
+    }
+    form.event_time = suggestion.time;
+}
 
 function submit() {
     if (isEdit.value) {
@@ -730,6 +806,7 @@ const massScheduleRequiredButMissing = computed(() => {
         <!-- Global fields -->
         <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
             <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-white">Reservation Information</h3>
+            <p class="mt-1 text-sm text-[#3f6470]/60 dark:text-slate-400">Who is making this reservation.</p>
 
             <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
@@ -756,84 +833,6 @@ const massScheduleRequiredButMissing = computed(() => {
                     <input v-model="form.contact_address" v-uppercase type="text" class="field-input" placeholder="Street, Barangay, City" />
                     <p v-if="form.errors.contact_address" class="field-error">{{ form.errors.contact_address }}</p>
                 </div>
-
-                <div>
-                    <label class="field-label">{{ form.type === 'pamisa_sa_kalag' ? 'Mass Date' : 'Reservation Date' }}</label>
-                    <input v-model="form.event_date" type="date" class="field-input" :min="isEdit ? undefined : todayStr" />
-                    <p v-if="form.errors.event_date" class="field-error">{{ form.errors.event_date }}</p>
-                </div>
-
-                <div v-if="form.type === 'pamisa_sa_kalag'">
-                    <label class="field-label">
-                        Mass Schedule
-                        <span v-if="loadingMassSchedules" class="ml-1 normal-case text-[#3f6470]/40 dark:text-slate-500">(loading schedules…)</span>
-                    </label>
-                    <select
-                        v-model="form.details.mass_schedule_id"
-                        class="field-input"
-                        :disabled="!form.event_date || loadingMassSchedules"
-                    >
-                        <option value="">{{ !form.event_date ? 'Select a Mass Date first' : 'Select a Mass schedule' }}</option>
-                        <option v-for="schedule in massSchedules" :key="schedule.id" :value="schedule.id">
-                            {{ schedule.label }}
-                        </option>
-                    </select>
-                    <p v-if="form.errors.event_time || form.errors['details.mass_schedule_id']" class="field-error">
-                        {{ form.errors.event_time || form.errors['details.mass_schedule_id'] }}
-                    </p>
-                    <p v-else-if="form.event_date && !loadingMassSchedules && !massSchedules.length" class="mt-1.5 text-xs text-[#3f6470]/60 dark:text-slate-400">
-                        No Mass schedules are available for the selected date.
-                    </p>
-                    <p v-else-if="!form.event_date" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
-                        Select a Mass Date first.
-                    </p>
-                </div>
-
-                <div v-else>
-                    <label class="field-label">
-                        Reservation Time
-                        <span v-if="loadingAvailability" class="ml-1 normal-case text-[#3f6470]/40 dark:text-slate-500">(checking availability…)</span>
-                    </label>
-                    <select v-model="form.event_time" class="field-input">
-                        <option value="">Select a time</option>
-                        <option
-                            v-for="slot in timeSlots"
-                            :key="slot.value"
-                            :value="slot.value"
-                            :disabled="isSlotTaken(slot.value)"
-                        >
-                            {{ slot.label }}{{ isSlotTaken(slot.value) ? ' — Unavailable' : '' }}
-                        </option>
-                    </select>
-                    <p v-if="form.errors.event_time" class="field-error">{{ form.errors.event_time }}</p>
-                    <p v-else-if="conflictWarning" class="mt-1.5 flex items-start gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
-                        <svg class="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z" stroke-linecap="round" stroke-linejoin="round" />
-                        </svg>
-                        {{ conflictWarning }}
-                    </p>
-                    <p v-else-if="form.priest_id && form.event_date && takenSlots.length" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
-                        Greyed-out times are already booked for this priest on this date.
-                    </p>
-                </div>
-
-                <div v-if="form.type !== 'pamisa_sa_kalag'">
-                    <label class="field-label">Assigned Priest</label>
-                    <select v-model="form.priest_id" class="field-input">
-                        <option value="">Unassigned</option>
-                        <option v-for="priest in priests" :key="priest.id" :value="priest.id">{{ priest.name }}</option>
-                    </select>
-                    <p v-if="form.errors.priest_id" class="field-error">{{ form.errors.priest_id }}</p>
-                    <p v-if="['wedding', 'baptism', 'burial'].includes(form.type)" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
-                        Held at the Main Sanctuary — another confirmed Wedding, Baptism, or Burial at the same time will be blocked, same as a priest double-booking.
-                    </p>
-                </div>
-
-                <div>
-                    <label class="field-label">{{ form.type === 'pamisa_sa_kalag' ? 'Mass Offering / Donation (Optional)' : 'Offering / Donation (Optional)' }}</label>
-                    <input v-model="form.offering_amount" type="number" min="0" step="0.01" class="field-input" placeholder="0.00" />
-                    <p v-if="form.errors.offering_amount" class="field-error">{{ form.errors.offering_amount }}</p>
-                </div>
             </div>
         </div>
 
@@ -842,6 +841,14 @@ const massScheduleRequiredButMissing = computed(() => {
             <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-white">
                 {{ typeLabels[form.type] }} Details
             </h3>
+
+            <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <div>
+                    <label class="field-label">{{ form.type === 'pamisa_sa_kalag' ? 'Mass Offering / Donation (Optional)' : 'Offering / Donation (Optional)' }}</label>
+                    <input v-model="form.offering_amount" type="number" min="0" step="0.01" class="field-input" placeholder="0.00" />
+                    <p v-if="form.errors.offering_amount" class="field-error">{{ form.errors.offering_amount }}</p>
+                </div>
+            </div>
 
             <!-- Wedding -->
             <div v-if="form.type === 'wedding'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
@@ -1284,6 +1291,57 @@ const massScheduleRequiredButMissing = computed(() => {
                 </div>
 
                 <p class="text-xs text-[#3f6470]/50 dark:text-slate-500">Submit at least 1-2 days before a weekday Mass, or a week ahead for a Sunday Mass, so the name makes the printed/announced list.</p>
+
+                <!-- Mass Schedule: Pamisa sa Kalag attaches to an existing Mass
+                     slot instead of picking a free Event Time, so it gets its
+                     own section here rather than the shared Event Schedule
+                     block below (which is hidden for this type). -->
+                <div class="border-t border-[#3f6470]/10 pt-6 dark:border-white/10">
+                    <h4 class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60 dark:text-slate-400">Mass Schedule</h4>
+
+                    <div class="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                        <div>
+                            <label class="field-label">Mass Date</label>
+                            <input v-model="form.event_date" type="date" class="field-input" :min="isEdit ? undefined : todayStr" />
+                            <p v-if="form.errors.event_date" class="field-error">{{ form.errors.event_date }}</p>
+                        </div>
+
+                        <div>
+                            <label class="field-label">Assigned Priest (Optional)</label>
+                            <select v-model="form.priest_id" class="field-input">
+                                <option value="">Unassigned</option>
+                                <option v-for="priest in priests" :key="priest.id" :value="priest.id">{{ priest.name }}</option>
+                            </select>
+                            <p v-if="form.errors.priest_id" class="field-error">{{ form.errors.priest_id }}</p>
+                        </div>
+
+                        <div class="sm:col-span-2">
+                            <label class="field-label">
+                                Mass Schedule
+                                <span v-if="loadingMassSchedules" class="ml-1 normal-case text-[#3f6470]/40 dark:text-slate-500">(loading schedules…)</span>
+                            </label>
+                            <select
+                                v-model="form.details.mass_schedule_id"
+                                class="field-input"
+                                :disabled="!form.event_date || loadingMassSchedules"
+                            >
+                                <option value="">{{ !form.event_date ? 'Select a Mass Date first' : 'Select a Mass schedule' }}</option>
+                                <option v-for="schedule in massSchedules" :key="schedule.id" :value="schedule.id">
+                                    {{ schedule.label }}
+                                </option>
+                            </select>
+                            <p v-if="form.errors.event_time || form.errors['details.mass_schedule_id']" class="field-error">
+                                {{ form.errors.event_time || form.errors['details.mass_schedule_id'] }}
+                            </p>
+                            <p v-else-if="form.event_date && !loadingMassSchedules && !massSchedules.length" class="mt-1.5 text-xs text-[#3f6470]/60 dark:text-slate-400">
+                                No Mass schedules are available for the selected date.
+                            </p>
+                            <p v-else-if="!form.event_date" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
+                                Select a Mass Date first.
+                            </p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- School Mass -->
@@ -1416,6 +1474,74 @@ const massScheduleRequiredButMissing = computed(() => {
             <p v-else class="mt-5 text-sm text-[#3f6470]/50 dark:text-slate-500">
                 No additional details needed for this event type.
             </p>
+
+            <!-- Scheduling: Priest + Time + Church Availability, kept inside
+                 this same {{ typeLabels[form.type] }} Details card (rather
+                 than the earlier "Reservation Information" card above) so
+                 it's clear this reservation isn't confirmed by filling in
+                 the details above — it still needs a time, priest, and a
+                 clean availability check before it can be saved. -->
+            <div v-if="form.type && form.type !== 'pamisa_sa_kalag'" class="mt-6 border-t border-[#3f6470]/10 pt-6 dark:border-white/10">
+                <h4 class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60 dark:text-slate-400">Event Schedule</h4>
+
+                <div class="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                    <div>
+                        <label class="field-label">Event Date</label>
+                        <input v-model="form.event_date" type="date" class="field-input" :min="isEdit ? undefined : todayStr" />
+                        <p v-if="form.errors.event_date" class="field-error">{{ form.errors.event_date }}</p>
+                    </div>
+
+                    <div>
+                        <label class="field-label">
+                            Event Time
+                            <span v-if="loadingEventTimes" class="ml-1 normal-case text-[#3f6470]/40 dark:text-slate-500">(loading available times…)</span>
+                        </label>
+                        <select v-model="form.event_time" class="field-input" :disabled="!form.event_date || loadingEventTimes">
+                            <option value="">
+                                {{ !form.event_date ? 'Select an Event Date first' : (availableEventTimes.length ? 'Select an available time' : 'No available times for this date') }}
+                            </option>
+                            <option v-for="slot in availableEventTimes" :key="slot" :value="slot">
+                                {{ formatEventTimeOption(slot) }}
+                            </option>
+                        </select>
+                        <p v-if="form.errors.event_time" class="field-error">{{ form.errors.event_time }}</p>
+                        <p v-else-if="conflictWarning" class="mt-1.5 flex items-start gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                            <svg class="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                            {{ conflictWarning }}
+                        </p>
+                        <p v-else-if="form.event_date && !loadingEventTimes && !availableEventTimes.length" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
+                            The Availability Engine found no open times on this date — try another Event Date.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label class="field-label">Assigned Priest</label>
+                        <select v-model="form.priest_id" class="field-input">
+                            <option value="">Unassigned</option>
+                            <option v-for="priest in priests" :key="priest.id" :value="priest.id">{{ priest.name }}</option>
+                        </select>
+                        <p v-if="form.errors.priest_id" class="field-error">{{ form.errors.priest_id }}</p>
+                        <p v-if="['wedding', 'baptism', 'burial'].includes(form.type)" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
+                            Held at Parish of the Holy Sacraments — another confirmed Wedding, Baptism, or Burial at the same time will be blocked, same as a priest double-booking.
+                        </p>
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <ChurchAvailabilityPanel
+                            :date="form.event_date"
+                            :time="form.event_time"
+                            :type="form.type"
+                            :location-id="form.location_id || null"
+                            :exclude-id="props.reservation?.id ?? null"
+                            :occupies-church="occupiesChurch"
+                            @conflict-change="onChurchConflictChange"
+                            @select-slot="onSelectSuggestedSlot"
+                        />
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="flex items-center justify-end gap-3">

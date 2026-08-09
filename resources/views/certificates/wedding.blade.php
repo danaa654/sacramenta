@@ -17,7 +17,7 @@
             <img src="{{ asset('img/logo.png') }}" alt="Parish Logo" class="cert-logo">
             <!-- NOTE: replace with your parish's actual name, address, and logo. -->
             <div class="cert-header-text">
-                <p class="parish-name">Sacramenta Parish Office</p>
+                <p class="parish-name">Parish of the Holy Sacraments</p>
                 <p class="parish-address">Parish Address Line · Contact Number</p>
             </div>
         </div>
@@ -39,31 +39,6 @@
             officiated by
             <span class="fill">{{ $reservation->priest?->name ?? '________________' }}</span>.
         </p>
-
-        <hr class="divider">
-
-        <table class="fields">
-            <tr>
-                <td class="label">Groom</td>
-                <td class="value">{{ $d['groom_name'] ?? '—' }}</td>
-            </tr>
-            <tr>
-                <td class="label">Bride</td>
-                <td class="value">{{ $d['bride_name'] ?? '—' }}</td>
-            </tr>
-            <tr>
-                <td class="label">Date of Marriage</td>
-                <td class="value">{{ \Carbon\Carbon::parse($reservation->event_date)->format('F j, Y') }}</td>
-            </tr>
-            <tr>
-                <td class="label">Officiating Priest</td>
-                <td class="value">{{ $reservation->priest?->name ?? '—' }}</td>
-            </tr>
-            <tr>
-                <td class="label">Venue</td>
-                <td class="value">{{ $reservation->location?->name ?? 'Main Sanctuary' }}</td>
-            </tr>
-        </table>
 
         <div class="signature-row">
             <div class="signature-line">Officiating Priest</div>

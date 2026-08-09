@@ -49,8 +49,8 @@ class SchedulingConflictService
      * Find a confirmed reservation of ANY type booked at the same
      * location_id that would collide with the given date + time window.
      * This is the generalized "any room, any sacrament" version of
-     * findChapelConflict — a Wedding in the Main Sanctuary now blocks a
-     * Burial from being confirmed in the Main Sanctuary at an overlapping
+     * findChapelConflict — a Wedding in the Parish of the Holy Sacraments now blocks a
+     * Burial from being confirmed in the Parish of the Holy Sacraments at an overlapping
      * time, not just another chapel_mass.
      */
     public function findLocationConflict(

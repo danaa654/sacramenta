@@ -263,7 +263,11 @@ function openReservation(reservation) {
                                     >
                                         Edit
                                     </Link>
-                                    <button @click.stop="destroy(r)" class="ml-4 font-medium text-red-500 hover:underline dark:text-red-400">
+                                    <button
+                                        v-if="r.status !== 'archived' && r.status !== 'completed'"
+                                        @click.stop="destroy(r)"
+                                        class="ml-4 font-medium text-red-500 hover:underline dark:text-red-400"
+                                    >
                                         Delete
                                     </button>
                                 </td>

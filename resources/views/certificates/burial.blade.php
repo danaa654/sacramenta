@@ -17,7 +17,7 @@
             <img src="{{ asset('img/logo.png') }}" alt="Parish Logo" class="cert-logo">
             <!-- NOTE: replace with your parish's actual name, address, and logo. -->
             <div class="cert-header-text">
-                <p class="parish-name">Sacramenta Parish Office</p>
+                <p class="parish-name">Parish of the Holy Sacraments</p>
                 <p class="parish-address">Parish Address Line · Contact Number</p>
             </div>
         </div>
@@ -38,37 +38,6 @@
             with committal at
             <span class="fill">{{ $d['cemetery'] ?? '________________' }}</span>.
         </p>
-
-        <hr class="divider">
-
-        <table class="fields">
-            <tr>
-                <td class="label">Deceased</td>
-                <td class="value">{{ $d['deceased_name'] ?? '—' }}</td>
-            </tr>
-            @if(!empty($d['age']))
-            <tr>
-                <td class="label">Age</td>
-                <td class="value">{{ $d['age'] }}</td>
-            </tr>
-            @endif
-            <tr>
-                <td class="label">Date of Service</td>
-                <td class="value">{{ \Carbon\Carbon::parse($reservation->event_date)->format('F j, Y') }}</td>
-            </tr>
-            <tr>
-                <td class="label">Service Type</td>
-                <td class="value">{{ $serviceLabels[$d['service_type'] ?? ''] ?? '—' }}</td>
-            </tr>
-            <tr>
-                <td class="label">Cemetery</td>
-                <td class="value">{{ $d['cemetery'] ?? '—' }}</td>
-            </tr>
-            <tr>
-                <td class="label">Officiating Priest</td>
-                <td class="value">{{ $reservation->priest?->name ?? '—' }}</td>
-            </tr>
-        </table>
 
         <div class="signature-row">
             <div class="signature-line">Officiating Priest</div>

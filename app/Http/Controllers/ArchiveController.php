@@ -21,12 +21,7 @@ class ArchiveController extends Controller
     {
         $reservations = Reservation::with('priest:id,name', 'location:id,name')
             ->whereIn('status', ['completed', 'archived'])
-            ->when($request->string('search')->toString(), function ($q, $search) {
-                $q->where(function ($q) use ($search) {
-                    $q->where('contact_name', 'like', "%{$search}%")
-                        ->orWhere('receipt_number', 'like', "%{$search}%");
-                });
-            })
+            ->when($request->string('search')->toString(), fn ($q, $search) => $q->searchSubject($search))
             ->when($request->string('type')->toString(), fn ($q, $type) => $q->where('type', $type))
             ->when($request->string('status')->toString(), fn ($q, $status) => $q->where('status', $status))
             ->orderByDesc('event_date')

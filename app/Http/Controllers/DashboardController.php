@@ -188,9 +188,20 @@ class DashboardController extends Controller
 
     protected function financialOverview(Carbon $today): array
     {
-        $start = $today->copy()->startOfMonth();
-        $end = $today->copy()->endOfMonth();
+        return [
+            'month' => $this->financialPeriod($today->copy()->startOfMonth(), $today->copy()->endOfMonth()),
+            'year' => $this->financialPeriod($today->copy()->startOfYear(), $today->copy()->endOfYear()),
+        ];
+    }
 
+    /**
+     * Offerings/collected/outstanding totals (plus a daily series for the
+     * sparkline) for reservations whose EVENT falls inside [$start, $end].
+     * Shared by the Financial Overview widget's "This Month" and "This
+     * Year" views — same shape, different window.
+     */
+    protected function financialPeriod(Carbon $start, Carbon $end): array
+    {
         $rows = Reservation::whereBetween('event_date', [$start, $end])
             ->whereNotNull('offering_amount')
             ->get(['offering_amount', 'amount_paid', 'payment_status', 'event_date']);

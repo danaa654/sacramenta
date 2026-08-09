@@ -40,7 +40,7 @@ const fireflies = Array.from({ length: 16 }, (_, i) => {
         <!-- Soft wash so content stays readable over the photo -->
         <div
             class="fixed inset-0 -z-10 dark:hidden"
-            style="background: linear-gradient(180deg, rgba(246,244,232,0.92) 0%, rgba(246,244,232,0.85) 18%, rgba(229,238,228,0.8) 55%, rgba(180,225,235,0.75) 100%);"
+            style="background: linear-gradient(180deg, rgba(246,244,232,0.45) 0%, rgba(246,244,232,0.38) 18%, rgba(229,238,228,0.32) 55%, rgba(180,225,235,0.28) 100%);"
         ></div>
         <!-- Dark mode wash -->
         <div
@@ -123,8 +123,9 @@ const fireflies = Array.from({ length: 16 }, (_, i) => {
 .gcloud {
     position: absolute;
     border-radius: 999px;
-    background: radial-gradient(circle at 30% 30%, rgba(228, 237, 225, 0.85), rgba(228, 237, 225, 0.15) 70%);
+    background: radial-gradient(circle at 30% 30%, rgba(228, 237, 225, 0.55), rgba(228, 237, 225, 0.08) 70%);
     filter: blur(22px);
+    opacity: 0.5;
 }
 
 .gcloud--a {

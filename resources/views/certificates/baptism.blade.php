@@ -32,7 +32,7 @@
                 <img src="{{ asset('img/logo.png') }}" alt="Parish Logo" class="cert-logo">
                 <!-- NOTE: replace with your parish's actual name, address, and logo. -->
                 <div class="cert-header-text">
-                    <p class="parish-name">Sacramenta Parish Office</p>
+                    <p class="parish-name">Parish of the Holy Sacraments</p>
                     <p class="parish-address">Parish Address Line · Contact Number</p>
                 </div>
             </div>
@@ -56,35 +56,6 @@
                 <span class="fill">{{ $godparentNames ?: '________________' }}</span>
                 standing as godparent(s).
             </p>
-
-            <hr class="divider">
-
-            <table class="fields">
-                <tr>
-                    <td class="label">Child's Name</td>
-                    <td class="value">{{ $child['child_name'] ?: '—' }}</td>
-                </tr>
-                <tr>
-                    <td class="label">Father's Name</td>
-                    <td class="value">{{ $child['father_name'] ?: '—' }}</td>
-                </tr>
-                <tr>
-                    <td class="label">Mother's Maiden Name</td>
-                    <td class="value">{{ $child['mother_maiden_name'] ?: '—' }}</td>
-                </tr>
-                <tr>
-                    <td class="label">Godparent(s)</td>
-                    <td class="value">{{ $godparentNames ?: '—' }}</td>
-                </tr>
-                <tr>
-                    <td class="label">Date of Baptism</td>
-                    <td class="value">{{ \Carbon\Carbon::parse($reservation->event_date)->format('F j, Y') }}</td>
-                </tr>
-                <tr>
-                    <td class="label">Officiating Priest</td>
-                    <td class="value">{{ $reservation->priest?->name ?? '—' }}</td>
-                </tr>
-            </table>
 
             <div class="signature-row">
                 <div class="signature-line">Officiating Priest</div>
