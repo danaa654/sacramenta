@@ -190,8 +190,18 @@ class ReservationController extends Controller
         ]);
     }
 
-    public function edit(Reservation $reservation): Response
+    public function edit(Reservation $reservation): Response|RedirectResponse
     {
+        // Completed/archived sacramental records are locked from normal
+        // editing — Correct Record (see correct() below) is the only
+        // sanctioned way to change one afterward. Enforced here too, not
+        // just by hiding the Edit button, in case someone hits this route
+        // directly.
+        if ($reservation->is_locked) {
+            return redirect()->route('reservations.show', $reservation)
+                ->with('error', 'This is a completed sacramental record and is read-only. Use "Correct Record" to make an audited correction instead.');
+        }
+
         return Inertia::render('Reservations/Edit', [
             'reservation' => $reservation,
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
@@ -202,6 +212,14 @@ class ReservationController extends Controller
 
     public function update(StoreReservationRequest $request, Reservation $reservation): RedirectResponse
     {
+        // Same lock as edit() above — belt-and-suspenders in case the
+        // normal edit form is submitted directly against a record that
+        // became locked (e.g. marked Completed) after the form loaded.
+        if ($reservation->is_locked) {
+            return redirect()->route('reservations.show', $reservation)
+                ->with('error', 'This is a completed sacramental record and is read-only. Use "Correct Record" to make an audited correction instead.');
+        }
+
         $data = $request->validated();
         $data['details'] = $this->cleanDetails($data['type'], $data['details'] ?? []);
 
@@ -227,6 +245,85 @@ class ReservationController extends Controller
 
         return redirect()->route('reservations.index')
             ->with('success', 'Reservation updated.');
+    }
+
+    /**
+     * Controlled Correction: the ONLY sanctioned way to change a
+     * completed/archived sacramental record. Deliberately separate from
+     * update() above — no status changes, no scheduling-conflict engine,
+     * no silent overwrite. Every changed field (contact info, schedule, or
+     * anything inside `details`, however deeply nested — a single child's
+     * name inside a group baptism's roster, for instance) gets its own
+     * audit_logs row recording the previous value, the new value, who made
+     * the change, when, and the mandatory reason — before the reservation
+     * row itself is updated to the corrected values. Certificates and the
+     * Archive always reflect the corrected data; the audit trail is where
+     * the original value is preserved.
+     */
+    public function correct(Request $request, Reservation $reservation): RedirectResponse
+    {
+        abort_unless($reservation->is_locked, 403, 'Correct Record is only available for completed or archived reservations. Use the normal Edit action instead.');
+
+        $validated = $request->validate([
+            'correction_reason' => ['required', 'string', 'max:500'],
+            'contact_name' => ['required', 'string', 'max:255'],
+            'contact_mobile' => ['required', 'string', 'max:30'],
+            'contact_email' => ['nullable', 'email', 'max:255'],
+            'contact_address' => ['nullable', 'string', 'max:500'],
+            'event_date' => ['required', 'date'],
+            'event_time' => ['nullable', 'date_format:H:i'],
+            'priest_id' => ['nullable', 'exists:priests,id'],
+            'details' => ['nullable', 'array'],
+        ]);
+
+        $reason = $validated['correction_reason'];
+
+        // Top-level scalar fields.
+        $trackedFields = ['contact_name', 'contact_mobile', 'contact_email', 'contact_address', 'event_date', 'event_time', 'priest_id'];
+
+        foreach ($trackedFields as $field) {
+            $previous = $field === 'event_date'
+                ? $reservation->event_date?->format('Y-m-d')
+                : $reservation->getOriginal($field);
+            $new = $validated[$field] ?? null;
+
+            if ((string) $previous !== (string) $new) {
+                AuditLogger::fieldCorrected($reservation, $field, $previous, $new, $reason);
+            }
+        }
+
+        // Every scalar leaf inside `details`, however deeply nested —
+        // covers everything from a single-child baptism's child_name to
+        // one name inside a group baptism's roster or Pamisa sa Kalag's
+        // list of the deceased.
+        $previousDetails = Reservation::flattenDetails($reservation->details ?? []);
+        $newDetails = Reservation::flattenDetails($validated['details'] ?? $reservation->details ?? []);
+
+        foreach (array_unique(array_merge(array_keys($previousDetails), array_keys($newDetails))) as $path) {
+            $previous = $previousDetails[$path] ?? null;
+            $new = $newDetails[$path] ?? null;
+
+            if ((string) $previous !== (string) $new) {
+                AuditLogger::fieldCorrected($reservation, "details.{$path}", $previous, $new, $reason);
+            }
+        }
+
+        // Status is deliberately untouched — a correction fixes data, it
+        // never reopens or re-files the record.
+        $reservation->update([
+            'contact_name' => $validated['contact_name'],
+            'contact_mobile' => $validated['contact_mobile'],
+            'contact_email' => $validated['contact_email'] ?? null,
+            'contact_address' => $validated['contact_address'] ?? null,
+            'event_date' => $validated['event_date'],
+            'event_time' => $validated['event_time'] ?? null,
+            'priest_id' => $validated['priest_id'] ?? null,
+            'details' => $validated['details'] ?? $reservation->details,
+            'updated_by' => $request->user()?->id,
+        ]);
+
+        return redirect()->route('reservations.show', $reservation)
+            ->with('success', 'Correction saved. The change has been recorded in the audit history.');
     }
 
     public function destroy(Request $request, Reservation $reservation): RedirectResponse

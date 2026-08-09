@@ -43,6 +43,7 @@ class Reservation extends Model
         'reservation_number',
         'display_name',
         'participants',
+        'is_locked',
     ];
 
     protected $casts = [
@@ -94,6 +95,44 @@ class Reservation extends Model
         $year = $this->created_at?->format('Y') ?? now()->format('Y');
 
         return "RES-{$year}-".str_pad((string) $this->id, 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * A completed or archived sacramental record is done and read-only by
+     * default — no normal Edit action. The only sanctioned way to change
+     * one afterward is the audited Correct Record flow (see
+     * ReservationController::correct()), never the regular
+     * edit()/update() actions, which reject locked reservations outright.
+     */
+    public function getIsLockedAttribute(): bool
+    {
+        return in_array($this->status, ['completed', 'archived'], true);
+    }
+
+    /**
+     * Flattens a (possibly nested) details array into ['dot.path' => leaf
+     * value] pairs, skipping array/object nodes themselves and keeping only
+     * scalar leaves. Used to diff old vs. new `details` field-by-field for
+     * the Correct Record audit trail, so a correction to, say,
+     * `children.0.child_name` is recorded as that specific field — not as
+     * an opaque "details changed" blob — regardless of the reservation
+     * type's particular shape.
+     */
+    public static function flattenDetails(array $details, string $prefix = ''): array
+    {
+        $flat = [];
+
+        foreach ($details as $key => $value) {
+            $path = $prefix === '' ? (string) $key : "{$prefix}.{$key}";
+
+            if (is_array($value)) {
+                $flat += self::flattenDetails($value, $path);
+            } else {
+                $flat[$path] = $value;
+            }
+        }
+
+        return $flat;
     }
 
     /**

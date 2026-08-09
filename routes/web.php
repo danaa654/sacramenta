@@ -78,6 +78,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::patch('reservations/{reservation}/actions', [ReservationController::class, 'updateActions'])
         ->name('reservations.actions.update');
 
+    Route::patch('reservations/{reservation}/correct', [ReservationController::class, 'correct'])
+        ->name('reservations.correct');
+
     Route::resource('reservations', ReservationController::class);
 
     Route::post('notifications/{notification}/read', [NotificationController::class, 'markRead'])

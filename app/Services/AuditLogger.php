@@ -70,4 +70,35 @@ class AuditLogger
     {
         return self::log('mass_schedule_updated', $description, null, $meta);
     }
+
+    /**
+     * A single-field change made through the Correct Record flow on a
+     * completed/archived reservation — deliberately NOT the same audit
+     * action as a normal reservationUpdated() edit, so the audit history
+     * clearly distinguishes "an administrator corrected a locked
+     * sacramental record" from routine editing. One entry per changed
+     * field: the previous value is preserved here rather than being
+     * silently overwritten, even though the reservation row itself now
+     * holds the corrected value.
+     */
+    public static function fieldCorrected(
+        Reservation $reservation,
+        string $field,
+        mixed $previousValue,
+        mixed $newValue,
+        string $reason
+    ): AuditLog {
+        return self::log(
+            'reservation_corrected',
+            "Correction on {$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type).
+                " record — field \"{$field}\" changed. Reason: {$reason}",
+            $reservation,
+            [
+                'field' => $field,
+                'previous_value' => $previousValue,
+                'new_value' => $newValue,
+                'correction_reason' => $reason,
+            ]
+        );
+    }
 }

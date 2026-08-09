@@ -279,6 +279,93 @@ const confirmTooltip = computed(() => {
     if (allRequirementsComplete.value) return '';
     return `Complete all requirements first (${completedRequirements.value} of ${totalRequirements.value} done)`;
 });
+
+// ---- Status-based editing lock / Correct Record ----
+//
+// Completed and archived sacramental records are read-only by default —
+// no normal Edit action. The only sanctioned way to change one afterward
+// is this Correct Record flow: it requires a reason, and every changed
+// field is written to the audit history (previous value preserved, never
+// silently overwritten) rather than just quietly saving like a normal edit.
+const isLocked = computed(() => props.reservation.status === 'completed' || props.reservation.status === 'archived');
+
+const showCorrectModal = ref(false);
+
+// Generic path helpers so the correction form can edit any leaf field
+// inside `details` — a single child's name inside a group baptism roster,
+// the deceased's name, a business name, etc. — without hardcoding a
+// per-type field list here (that logic already lives once, server-side,
+// in Reservation::flattenDetails()).
+function detailLeaves(obj, prefix = '') {
+    let out = [];
+    for (const [key, value] of Object.entries(obj ?? {})) {
+        const path = prefix ? `${prefix}.${key}` : key;
+        if (value !== null && typeof value === 'object') {
+            out = out.concat(detailLeaves(value, path));
+        } else {
+            out.push(path);
+        }
+    }
+    return out;
+}
+
+function getByPath(obj, path) {
+    return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
+function setByPath(obj, path, value) {
+    const keys = path.split('.');
+    let cur = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+        const key = keys[i];
+        if (cur[key] === undefined || cur[key] === null) {
+            cur[key] = /^\d+$/.test(keys[i + 1]) ? [] : {};
+        }
+        cur = cur[key];
+    }
+    cur[keys[keys.length - 1]] = value;
+}
+
+function correctionLabel(path) {
+    return path
+        .split('.')
+        .map((part) => (/^\d+$/.test(part) ? `#${Number(part) + 1}` : part.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')))
+        .join(' — ');
+}
+
+const correctForm = useForm({
+    correction_reason: '',
+    contact_name: props.reservation.contact_name ?? '',
+    contact_mobile: props.reservation.contact_mobile ?? '',
+    contact_email: props.reservation.contact_email ?? '',
+    contact_address: props.reservation.contact_address ?? '',
+    event_date: props.reservation.event_date?.slice(0, 10) ?? '',
+    event_time: props.reservation.event_time?.slice(0, 5) ?? '',
+    priest_id: props.reservation.priest_id ?? '',
+    details: JSON.parse(JSON.stringify(props.reservation.details ?? {})),
+});
+
+const correctableDetailPaths = computed(() => detailLeaves(correctForm.details));
+
+function openCorrectModal() {
+    correctForm.reset();
+    correctForm.clearErrors();
+    correctForm.details = JSON.parse(JSON.stringify(props.reservation.details ?? {}));
+    showCorrectModal.value = true;
+}
+
+function closeCorrectModal() {
+    showCorrectModal.value = false;
+}
+
+function submitCorrection() {
+    correctForm.patch(route('reservations.correct', props.reservation.id), {
+        preserveScroll: true,
+        onSuccess: () => {
+            showCorrectModal.value = false;
+        },
+    });
+}
 </script>
 
 <template>
@@ -290,12 +377,20 @@ const confirmTooltip = computed(() => {
 
                 <div class="flex items-center justify-end gap-3">
                     <Link
-                        v-if="reservation.type !== 'mass'"
+                        v-if="reservation.type !== 'mass' && !isLocked"
                         :href="route('reservations.edit', reservation.id)"
                         class="rounded-full border border-[#3f6470]/25 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60"
                     >
                         Edit
                     </Link>
+                    <button
+                        v-if="reservation.type !== 'mass' && isLocked"
+                        type="button"
+                        class="rounded-full border border-[#8a6a34]/30 bg-[#EFE6D8]/60 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#8a6a34] transition hover:bg-[#EFE6D8]"
+                        @click="openCorrectModal"
+                    >
+                        Correct Record
+                    </button>
                     <Link
                         :href="route('reservations.index')"
                         class="rounded-full bg-[#8CA089] px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-sm shadow-[#8CA089]/30 transition hover:-translate-y-0.5 hover:bg-[#7c9078] hover:shadow-md"
@@ -749,6 +844,106 @@ const confirmTooltip = computed(() => {
 
                 </div>
 
+            </div>
+        </div>
+
+        <!-- Correct Record modal — the only sanctioned way to change a
+             completed/archived reservation. Distinct from normal editing:
+             requires a reason, and every changed field is written to the
+             audit trail rather than silently overwritten. -->
+        <div
+            v-if="showCorrectModal"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-[#173528]/40 px-4 py-8 backdrop-blur-sm"
+            @click.self="closeCorrectModal"
+        >
+            <div class="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+                <div class="border-b border-[#3f6470]/10 px-6 py-4">
+                    <h2 class="text-lg font-semibold text-[#173528]">Correct Record</h2>
+                    <p class="mt-2 text-sm text-[#3f6470]/80">
+                        This is a completed sacramental record.
+                    </p>
+                    <p class="text-sm text-[#3f6470]/80">
+                        Corrections should only be made when necessary. The system will record the change in the audit history.
+                    </p>
+                </div>
+
+                <div class="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+                    <div>
+                        <label class="field-label">Correction Reason <span class="text-red-500">*</span></label>
+                        <textarea
+                            v-model="correctForm.correction_reason"
+                            rows="2"
+                            placeholder="e.g. Incorrect spelling of child's name"
+                            class="field-input mt-1.5"
+                        ></textarea>
+                        <p v-if="correctForm.errors.correction_reason" class="mt-1 text-xs text-red-500">{{ correctForm.errors.correction_reason }}</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div>
+                            <label class="field-label">Contact Person</label>
+                            <input v-model="correctForm.contact_name" type="text" class="field-input mt-1.5" />
+                        </div>
+                        <div>
+                            <label class="field-label">Contact Mobile</label>
+                            <input v-model="correctForm.contact_mobile" type="text" class="field-input mt-1.5" />
+                        </div>
+                        <div>
+                            <label class="field-label">Contact Email</label>
+                            <input v-model="correctForm.contact_email" type="email" class="field-input mt-1.5" />
+                        </div>
+                        <div>
+                            <label class="field-label">Contact Address</label>
+                            <input v-model="correctForm.contact_address" type="text" class="field-input mt-1.5" />
+                        </div>
+                        <div>
+                            <label class="field-label">Event Date</label>
+                            <input v-model="correctForm.event_date" type="date" class="field-input mt-1.5" />
+                        </div>
+                        <div>
+                            <label class="field-label">Event Time</label>
+                            <input v-model="correctForm.event_time" type="time" class="field-input mt-1.5" />
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="field-label">Assigned Priest</label>
+                            <select v-model="correctForm.priest_id" class="field-input mt-1.5">
+                                <option value="">— Unassigned —</option>
+                                <option v-for="p in priests" :key="p.id" :value="p.id">{{ p.name }}</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div v-if="correctableDetailPaths.length" class="space-y-3 rounded-xl border border-[#3f6470]/10 bg-[#F7F5EF] p-4">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60">Sacrament Details</p>
+                        <div v-for="path in correctableDetailPaths" :key="path">
+                            <label class="field-label">{{ correctionLabel(path) }}</label>
+                            <input
+                                :value="getByPath(correctForm.details, path)"
+                                type="text"
+                                class="field-input mt-1.5"
+                                @input="setByPath(correctForm.details, path, $event.target.value)"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 border-t border-[#3f6470]/10 px-6 py-4">
+                    <button
+                        type="button"
+                        class="rounded-full border border-[#3f6470]/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#3f6470]/5"
+                        @click="closeCorrectModal"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        :disabled="!correctForm.correction_reason || correctForm.processing"
+                        class="rounded-full bg-[#173528] px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-[#0f2818] disabled:cursor-not-allowed disabled:opacity-50"
+                        @click="submitCorrection"
+                    >
+                        Save Correction
+                    </button>
+                </div>
             </div>
         </div>
     </AuthenticatedLayout>

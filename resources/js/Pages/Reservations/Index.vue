@@ -257,6 +257,7 @@ function openReservation(reservation) {
                                         Confirm
                                     </button>
                                     <Link
+                                        v-if="r.status !== 'archived' && r.status !== 'completed'"
                                         :href="route('reservations.edit', r.id)"
                                         @click.stop
                                         class="ml-4 font-medium text-[#3f6470] hover:underline dark:text-slate-300"
