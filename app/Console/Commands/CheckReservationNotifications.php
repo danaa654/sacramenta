@@ -102,15 +102,19 @@ class CheckReservationNotifications extends Command
                 ? Carbon::parse($reservation->event_time)->format('g:i A')
                 : null;
 
-            $typeLabel = str_replace('_', ' ', $reservation->type);
+            $who = $reservation->type === 'mass' ? null : $reservation->display_name;
 
             if ($same) {
                 $title = 'Upcoming today';
-                $body = "{$reservation->contact_name}'s {$typeLabel} is scheduled for ".($time ?? 'later today').'.';
+                $body = $who
+                    ? "{$who} is scheduled for ".($time ?? 'later today').'.'
+                    : 'Scheduled for '.($time ?? 'later today').'.';
             } else {
                 $title = "Upcoming in {$daysAhead} day".($daysAhead === 1 ? '' : 's');
                 $when = Carbon::parse($date)->format('M j').($time ? " at {$time}" : '');
-                $body = "{$reservation->contact_name}'s {$typeLabel} is coming up on {$when}.";
+                $body = $who
+                    ? "{$who} is coming up on {$when}."
+                    : "Coming up on {$when}.";
             }
 
             $notifier->notifyAdmins(

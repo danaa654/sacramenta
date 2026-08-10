@@ -46,6 +46,7 @@ class HandleInertiaRequests extends Middleware
                         'kind' => $n->data['kind'] ?? 'reminder',
                         'title' => $n->data['title'] ?? '',
                         'body' => $n->data['body'] ?? '',
+                        'category' => $n->data['category'] ?? null,
                         'url' => $n->data['url'] ?? null,
                         'read' => $n->read_at !== null,
                         'created_at' => $n->created_at->diffForHumans(),

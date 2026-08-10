@@ -196,6 +196,31 @@ class Reservation extends Model
      * duplicated across the Archive table, reservation Show page, and
      * certificate views.
      */
+    /**
+     * Short, human-readable label for the reservation's type — e.g. "Mass"
+     * for the parish's standing schedule, "Wedding" for a sacrament
+     * booking. Used anywhere the UI needs to badge/tag what kind of event
+     * this is, separately from who it's for (see notifications bell).
+     */
+    public function getTypeLabelAttribute(): string
+    {
+        return match ($this->type) {
+            'mass' => 'Mass',
+            'wedding' => 'Wedding',
+            'baptism' => 'Baptism',
+            'burial' => 'Burial',
+            'first_communion' => 'First Communion',
+            'confirmation' => 'Confirmation',
+            'pamisa_sa_kalag' => 'Pamisa sa Kalag',
+            'house_blessing' => 'House Blessing',
+            'business_blessing' => 'Business Blessing',
+            'chapel_mass' => 'Chapel Mass',
+            'school_mass' => 'School Mass',
+            'vehicle_blessing' => 'Vehicle Blessing',
+            default => ucwords(str_replace('_', ' ', $this->type)),
+        };
+    }
+
     public function getDisplayNameAttribute(): string
     {
         $d = $this->details ?? [];

@@ -43,6 +43,7 @@ class ReservationActivityNotification extends Notification
             'kind' => $this->kind,
             'title' => $this->title,
             'body' => $this->body,
+            'category' => $this->reservation?->type_label,
             'reservation_id' => $this->reservation?->id,
             'url' => $this->reservation
                 ? route('reservations.show', $this->reservation)

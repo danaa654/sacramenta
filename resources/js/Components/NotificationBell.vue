@@ -113,6 +113,13 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
                         <span class="min-w-0 flex-1">
                             <span class="flex items-center gap-2">
                                 <span class="truncate text-sm font-medium text-[#173528] dark:text-slate-100">{{ n.title }}</span>
+                                <span
+                                    v-if="n.category"
+                                    class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                                    :class="[iconStyle(n.kind).bg, iconStyle(n.kind).fg]"
+                                >
+                                    {{ n.category }}
+                                </span>
                                 <span v-if="!n.read" class="h-1.5 w-1.5 shrink-0 rounded-full bg-[#B84545]"></span>
                             </span>
                             <span class="mt-0.5 block text-xs text-[#173528]/55 dark:text-slate-400">{{ n.body }}</span>
