@@ -84,7 +84,7 @@ class ReservationController extends Controller
     {
         return Inertia::render('Reservations/Create', [
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
-            'locations' => Location::where('is_active', true)->orderBy('name')->get(['id', 'name', 'kind']),
+            'locations' => Location::where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'chapels' => $this->chapels,
             // Populated when arriving from the Calendar page's "click an empty day" flow.
             'date' => $request->query('date'),
@@ -230,7 +230,7 @@ class ReservationController extends Controller
         return Inertia::render('Reservations/Edit', [
             'reservation' => $reservation,
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
-            'locations' => Location::where('is_active', true)->orderBy('name')->get(['id', 'name', 'kind']),
+            'locations' => Location::where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'chapels' => $this->chapels,
         ]);
     }
@@ -716,19 +716,23 @@ class ReservationController extends Controller
                 ->values();
         }
 
-        // Wedding, Baptism, and Burial all share the single Parish of the
-        // Holy Sacraments venue, so any confirmed reservation of these
-        // three types on the same date blocks a slot for the others too —
-        // same idea as the per-priest / per-chapel checks above.
+        // Wedding, Baptism, Burial, First Communion, and Confirmation all
+        // share the single Main Sanctuary venue (config
+        // `church_schedule.main_sanctuary_types` — the same list
+        // StoreReservationRequest and ChurchAvailabilityService use), so
+        // any confirmed reservation of these types on the same date blocks
+        // a slot for the others too — same idea as the per-priest /
+        // per-chapel checks above.
         $takenVenue = collect();
+        $mainSanctuaryTypes = config('church_schedule.main_sanctuary_types', ['wedding', 'baptism', 'burial']);
 
-        if (in_array($validated['type'] ?? null, ['wedding', 'baptism', 'burial'], true)) {
-            $mainSanctuaryId = Location::where('name', 'Parish of the Holy Sacraments')->value('id');
+        if (in_array($validated['type'] ?? null, $mainSanctuaryTypes, true)) {
+            $mainSanctuaryId = Location::where('name', config('church_schedule.main_sanctuary_name', 'Parish of the Holy Sacraments'))->value('id');
 
             if ($mainSanctuaryId) {
                 $takenVenue = Reservation::query()
                     ->where('location_id', $mainSanctuaryId)
-                    ->whereIn('type', ['wedding', 'baptism', 'burial'])
+                    ->whereIn('type', $mainSanctuaryTypes)
                     ->where('status', 'confirmed')
                     ->whereDate('event_date', $validated['date'])
                     ->whereNotNull('event_time')

@@ -86,7 +86,7 @@ const paymentStatusStyles = {
     unpaid: 'bg-white text-[#3f6470]/70 border-[#3f6470]/20 dark:bg-slate-700/50 dark:text-slate-300 dark:border-white/10',
     partial: 'bg-[#F7E9C6] text-[#7a5a1a] border-[#c9a13a] dark:bg-[#3a2f1a]/70 dark:text-[#e0cfa8] dark:border-[#8a6a34]/40',
     paid: 'bg-[#CFE4C7] text-[#2f5a2a] border-[#5e9a53] dark:bg-[#1e2e1e]/70 dark:text-[#c9dcc3] dark:border-[#4f7a4a]/40',
-    waived: 'bg-slate-100 text-[#3f6470]/50 border-[#3f6470]/15 dark:bg-slate-700/50 dark:text-slate-400 dark:border-white/10',
+    waived: 'bg-gray-100 text-[#3f6470]/50 border-[#3f6470]/15 dark:bg-slate-700/50 dark:text-slate-400 dark:border-white/10',
 };
 
 const paymentStatusLabels = {

@@ -14,18 +14,106 @@ return [
 
     'checklists' => [
 
+        // Wedding Requirements is split into two groups:
+        //
+        //  - "Pre-Marriage Requirements" (`is_required` => true): the core
+        //    pastoral checklist. An item here left Pending or In Progress
+        //    is what keeps a wedding from being confirmed — see
+        //    Reservation::requirementsComplete().
+        //
+        //  - "Parish-Specific / Supporting Documents" (`is_required` =>
+        //    false): certificates and paperwork that vary by parish and
+        //    couple. These can be tracked (Pending/In Progress/Completed)
+        //    or explicitly marked Not Required, but never block
+        //    confirmation on their own. Confirmation Certificate lives
+        //    here rather than as a mandatory item, since not every parish
+        //    requires it before a wedding can proceed.
         'wedding' => [
-            ['key' => 'reservation_deposit', 'label' => 'Reservation Deposit Paid'],
-            ['key' => 'baptismal_certificate_groom', 'label' => "Baptismal Certificate, For Marriage Purposes (Groom)"],
-            ['key' => 'baptismal_certificate_bride', 'label' => "Baptismal Certificate, For Marriage Purposes (Bride)"],
-            ['key' => 'confirmation_certificate_groom', 'label' => "Confirmation Certificate, For Marriage Purposes (Groom)"],
-            ['key' => 'confirmation_certificate_bride', 'label' => "Confirmation Certificate, For Marriage Purposes (Bride)"],
-            ['key' => 'cenomar_groom', 'label' => 'Cenomar / Certificate of No Marriage (Groom)'],
-            ['key' => 'cenomar_bride', 'label' => 'Cenomar / Certificate of No Marriage (Bride)'],
-            ['key' => 'civil_marriage_license', 'label' => 'Civil Marriage License'],
-            ['key' => 'canonical_interview', 'label' => 'Canonical Interview Completed'],
-            ['key' => 'marriage_banns', 'label' => 'Marriage Banns Posted (3 consecutive weeks, both parishes)'],
-            ['key' => 'pre_cana_seminar', 'label' => 'Pre-Cana Seminar Completed'],
+            [
+                'key' => 'canonical_interview',
+                'label' => 'Canonical Interview Completed',
+                'is_required' => true,
+                'group_key' => 'pre_marriage',
+                'group_label' => 'Pre-Marriage Requirements',
+            ],
+            [
+                'key' => 'marriage_banns',
+                'label' => 'Marriage Banns Posted',
+                'description' => 'Usually announced for 3 consecutive weeks, according to parish requirements.',
+                'is_required' => true,
+                'group_key' => 'pre_marriage',
+                'group_label' => 'Pre-Marriage Requirements',
+            ],
+            [
+                'key' => 'pre_cana_seminar',
+                'label' => 'Pre-Cana / Marriage Preparation Seminar Completed',
+                'is_required' => true,
+                'group_key' => 'pre_marriage',
+                'group_label' => 'Pre-Marriage Requirements',
+            ],
+            [
+                'key' => 'required_documents_verified',
+                'label' => 'Required Documents Verified',
+                'is_required' => true,
+                'group_key' => 'pre_marriage',
+                'group_label' => 'Pre-Marriage Requirements',
+            ],
+            [
+                'key' => 'reservation_deposit',
+                'label' => 'Reservation Deposit Paid',
+                'is_required' => false,
+                'group_key' => 'supporting',
+                'group_label' => 'Parish-Specific / Supporting Documents',
+            ],
+            [
+                'key' => 'baptismal_certificate_groom',
+                'label' => 'Baptismal Certificate, For Marriage Purposes (Groom)',
+                'is_required' => false,
+                'group_key' => 'supporting',
+                'group_label' => 'Parish-Specific / Supporting Documents',
+            ],
+            [
+                'key' => 'baptismal_certificate_bride',
+                'label' => 'Baptismal Certificate, For Marriage Purposes (Bride)',
+                'is_required' => false,
+                'group_key' => 'supporting',
+                'group_label' => 'Parish-Specific / Supporting Documents',
+            ],
+            [
+                'key' => 'confirmation_certificate_groom',
+                'label' => 'Confirmation Certificate, For Marriage Purposes (Groom)',
+                'is_required' => false,
+                'group_key' => 'supporting',
+                'group_label' => 'Parish-Specific / Supporting Documents',
+            ],
+            [
+                'key' => 'confirmation_certificate_bride',
+                'label' => 'Confirmation Certificate, For Marriage Purposes (Bride)',
+                'is_required' => false,
+                'group_key' => 'supporting',
+                'group_label' => 'Parish-Specific / Supporting Documents',
+            ],
+            [
+                'key' => 'cenomar_groom',
+                'label' => 'Cenomar / Certificate of No Marriage (Groom)',
+                'is_required' => false,
+                'group_key' => 'supporting',
+                'group_label' => 'Parish-Specific / Supporting Documents',
+            ],
+            [
+                'key' => 'cenomar_bride',
+                'label' => 'Cenomar / Certificate of No Marriage (Bride)',
+                'is_required' => false,
+                'group_key' => 'supporting',
+                'group_label' => 'Parish-Specific / Supporting Documents',
+            ],
+            [
+                'key' => 'civil_marriage_license',
+                'label' => 'Civil Marriage License',
+                'is_required' => false,
+                'group_key' => 'supporting',
+                'group_label' => 'Parish-Specific / Supporting Documents',
+            ],
         ],
 
         'baptism' => [

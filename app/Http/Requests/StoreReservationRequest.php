@@ -15,15 +15,22 @@ use Illuminate\Validation\Validator;
 class StoreReservationRequest extends FormRequest
 {
     /**
-     * Wedding, Baptism, and Burial only ever happen at the parish's Main
-     * Sanctuary — there's no venue picker for these types in the form
-     * anymore, so we assign it here rather than relying on the UI. This
-     * makes the existing venue-conflict check (findLocationConflict,
-     * already used for confirm-time and priest-style double-booking
-     * prevention) apply to these types automatically, the same way the
-     * priest conflict check already does.
+     * Wedding, Baptism, Burial, First Communion, and Confirmation only
+     * ever happen at the parish's Main Sanctuary — there's no venue picker
+     * for these types in the form, so we assign it here rather than
+     * relying on the UI. This makes the existing venue-conflict check
+     * (findLocationConflict, already used for confirm-time and
+     * priest-style double-booking prevention) apply to these types
+     * automatically, the same way the priest conflict check already does.
+     * Mirrors config('church_schedule.main_sanctuary_types') — the single
+     * source of truth ChurchAvailabilityService::resolveVenue() also reads
+     * from, so both engines agree on which types default to the Main
+     * Sanctuary.
      */
-    protected const MAIN_SANCTUARY_TYPES = ['wedding', 'baptism', 'burial'];
+    protected function mainSanctuaryTypes(): array
+    {
+        return config('church_schedule.main_sanctuary_types', ['wedding', 'baptism', 'burial']);
+    }
 
     public function authorize(): bool
     {
@@ -32,8 +39,8 @@ class StoreReservationRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        if (in_array($this->input('type'), self::MAIN_SANCTUARY_TYPES, true) && !$this->input('location_id')) {
-            $mainSanctuary = Location::where('name', 'Parish of the Holy Sacraments')->first();
+        if (in_array($this->input('type'), $this->mainSanctuaryTypes(), true) && !$this->input('location_id')) {
+            $mainSanctuary = Location::where('name', config('church_schedule.main_sanctuary_name', 'Parish of the Holy Sacraments'))->first();
 
             if ($mainSanctuary) {
                 $this->merge(['location_id' => $mainSanctuary->id]);

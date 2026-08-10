@@ -25,6 +25,13 @@ const props = defineProps({
     // all (false for pamisa_sa_kalag, which attaches to an existing Mass
     // instead) — the parent decides this since it already knows the type.
     occupiesChurch: { type: Boolean, default: true },
+    // Duration/venue-relevant subset of the reservation's `details`
+    // (ceremony_type, baptism_type + children count, booking_mode +
+    // students count, venue for School Mass) — plain object, JSON-encoded
+    // before sending. Lets the engine size Wedding/Baptism/First Communion
+    // correctly and know whether a School Mass is "On Campus" (no venue,
+    // never conflicts) or "At the Church" (Main Sanctuary, does conflict).
+    details: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(['select-slot', 'conflict-change']);
@@ -34,6 +41,7 @@ const timeline = ref([]);
 const blocked = ref(null);
 const conflict = ref(null);
 const suggestions = ref([]);
+const venue = ref(null);
 const expanded = ref(false);
 
 const showOverride = ref(false);
@@ -45,6 +53,7 @@ async function refresh() {
         blocked.value = null;
         conflict.value = null;
         suggestions.value = [];
+        venue.value = null;
         emit('conflict-change', { conflict: null, blocked: null, overrideReason: '' });
         return;
     }
@@ -59,6 +68,7 @@ async function refresh() {
                 time: props.time || undefined,
                 exclude: props.excludeId || undefined,
                 location_id: props.locationId || undefined,
+                details: JSON.stringify(props.details ?? {}),
             },
         });
 
@@ -66,6 +76,7 @@ async function refresh() {
         blocked.value = data.blocked ?? null;
         conflict.value = data.conflict ?? null;
         suggestions.value = data.suggestions ?? [];
+        venue.value = data.venue ?? null;
 
         emit('conflict-change', {
             conflict: conflict.value,
@@ -82,7 +93,7 @@ async function refresh() {
 }
 
 watch(
-    () => [props.date, props.type, props.time, props.locationId, props.excludeId, props.occupiesChurch],
+    () => [props.date, props.type, props.time, props.locationId, props.excludeId, props.occupiesChurch, JSON.stringify(props.details ?? {})],
     refresh,
     { immediate: true }
 );
@@ -119,6 +130,7 @@ const dotClass = {
         >
             <span class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470]/70 dark:text-slate-300">
                 Church Availability
+                <span v-if="venue" class="normal-case font-normal text-[#3f6470]/50 dark:text-slate-400">— {{ venue.label }}</span>
                 <span v-if="loading" class="normal-case font-normal text-[#3f6470]/40 dark:text-slate-500">(checking…)</span>
             </span>
             <svg
@@ -130,15 +142,20 @@ const dotClass = {
             </svg>
         </button>
 
+        <!-- No shared venue (e.g. School Mass held On Campus) -->
+        <div v-if="!loading && !venue && !blocked" class="mt-3 rounded-lg bg-white/60 px-3 py-2 text-xs text-[#3f6470]/60 dark:bg-slate-800/40 dark:text-slate-400">
+            This reservation doesn't use a shared church venue, so there's nothing to check for conflicts here.
+        </div>
+
         <!-- Blocked date -->
-        <div v-if="blocked" class="mt-3 flex items-start gap-2 rounded-lg bg-slate-200/70 px-3 py-2.5 text-sm text-slate-700 dark:bg-slate-700/50 dark:text-slate-200">
+        <div v-if="blocked" class="mt-3 flex items-start gap-2 rounded-lg bg-gray-200/70 px-3 py-2.5 text-sm text-gray-700 dark:bg-slate-700/50 dark:text-slate-200">
             <svg class="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 9v4M12 17h.01M4 6h16v14H4z" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
             <div>
                 <p class="font-medium">Blocked period — {{ blocked.title }}</p>
-                <p v-if="blocked.reason" class="text-xs text-slate-500 dark:text-slate-400">{{ blocked.reason }}</p>
-                <p class="text-xs text-slate-500 dark:text-slate-400">
+                <p v-if="blocked.reason" class="text-xs text-gray-500 dark:text-slate-400">{{ blocked.reason }}</p>
+                <p class="text-xs text-gray-500 dark:text-slate-400">
                     {{ blocked.start_date }} – {{ blocked.end_date }}. No reservation may be created here unless overridden.
                 </p>
             </div>
@@ -150,8 +167,10 @@ const dotClass = {
                 <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
             <div>
-                <p class="font-medium">⚠ Conflict Detected</p>
-                <p>This reservation overlaps with {{ conflict.label }} — {{ conflict.start_label }} – {{ conflict.end_label }}.</p>
+                <p class="font-medium">
+                    ⚠ {{ conflict.venue_kind === 'main_sanctuary' ? 'Main Sanctuary Conflict' : conflict.venue_kind === 'chapel' ? 'Chapel Conflict' : 'Venue Conflict' }}
+                </p>
+                <p>This reservation overlaps with {{ conflict.label }} at {{ conflict.venue_label }} — {{ conflict.start_label }} – {{ conflict.end_label }}.</p>
             </div>
         </div>
 

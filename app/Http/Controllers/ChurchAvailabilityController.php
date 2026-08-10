@@ -48,6 +48,13 @@ class ChurchAvailabilityController extends Controller
 
         $blocked = $this->engine->isBlocked($date, $locationId);
 
+        // Which physical venue (if any) THIS reservation resolves to —
+        // Main Sanctuary, a named Chapel, or none. Surfaced in the response
+        // so the admin can see what's actually being checked (and why a
+        // School Mass "On Campus" or a House Blessing never shows a venue
+        // conflict at all).
+        $venue = $type ? $this->engine->resolveVenue($type, $details, $locationId) : null;
+
         $response = [
             'date' => $date,
             'blocked' => $blocked ? [
@@ -56,7 +63,11 @@ class ChurchAvailabilityController extends Controller
                 'start_date' => $blocked->start_date->toDateString(),
                 'end_date' => $blocked->end_date->toDateString(),
             ] : null,
-            'timeline' => $this->engine->dayTimeline($date, $excludeId, $locationId),
+            'venue' => $venue ? [
+                'label' => $venue['label'],
+                'kind' => $venue['kind'], // 'main_sanctuary' | 'chapel' | 'other'
+            ] : null,
+            'timeline' => $this->engine->dayTimeline($date, $excludeId, $locationId, $type, $details),
             // The Event Time dropdown's only source of selectable options —
             // administrators may never type an arbitrary time. Empty when
             // no type is known yet, or when the date is blocked.
@@ -75,6 +86,11 @@ class ChurchAvailabilityController extends Controller
                     'start_label' => $conflict['start']->format('g:i A'),
                     'end_label' => $conflict['end']->format('g:i A'),
                     'reservation_id' => $conflict['reservation_id'],
+                    // Which venue the collision is actually at — lets the UI
+                    // say "Main Sanctuary conflict" vs "Chapel conflict" vs
+                    // "Venue conflict" instead of a generic message.
+                    'venue_label' => $conflict['venue_label'],
+                    'venue_kind' => $conflict['venue_kind'],
                 ];
 
                 $response['suggestions'] = $this->engine->suggestSlots($date, $type, $excludeId, $locationId, 3, 14, $details);

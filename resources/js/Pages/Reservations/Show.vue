@@ -51,10 +51,10 @@ const typeLabels = {
 };
 
 const statusStyles = {
-    draft: 'bg-white text-[#3f6470]/70 border-[#3f6470]/15',
+    draft: 'bg-white text-[#3f6470]/70 dark:text-slate-300 border-[#3f6470]/15 dark:bg-slate-700 dark:border-white/10',
     confirmed: 'bg-[#EFE6D8] text-[#8a6a34] border-[#e0cfa8]',
     completed: 'bg-[#E4EDE1] text-[#4f7a4a] border-[#c9dcc3]',
-    archived: 'bg-white text-[#3f6470]/50 border-[#3f6470]/15',
+    archived: 'bg-white text-[#3f6470]/50 dark:text-slate-300 border-[#3f6470]/15 dark:bg-slate-700 dark:border-white/10',
 };
 
 const statusOptions = [
@@ -224,7 +224,7 @@ const rotaForm = useForm({
 });
 
 const rotaStatusStyles = {
-    needed: 'bg-white text-[#3f6470]/70 border-[#3f6470]/20',
+    needed: 'bg-white text-[#3f6470]/70 dark:text-slate-300 border-[#3f6470]/20',
     requested: 'bg-[#F7E9C6] text-[#7a5a1a] border-[#c9a13a]',
     confirmed: 'bg-[#CFE4C7] text-[#2f5a2a] border-[#5e9a53]',
 };
@@ -396,7 +396,7 @@ function submitCorrection() {
                     <Link
                         v-if="reservation.type !== 'mass' && !isLocked"
                         :href="route('reservations.edit', reservation.id)"
-                        class="rounded-full border border-[#3f6470]/25 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60"
+                        class="rounded-full border border-[#3f6470]/25 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] dark:text-slate-300 transition hover:bg-[#E4EDE1]/60"
                     >
                         Edit
                     </Link>
@@ -419,9 +419,9 @@ function submitCorrection() {
                 <div class="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
                 <div class="space-y-6 lg:col-span-2">
 
-                <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm">
+                <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800">
                     <div class="flex items-center justify-between">
-                        <h3 class="font-serif text-xl font-medium text-[#3f6470]">
+                        <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-slate-300">
                             {{ typeLabels[reservation.type] ?? reservation.type }}
                         </h3>
                         <span
@@ -435,62 +435,48 @@ function submitCorrection() {
                     <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                         <div>
                             <dt class="field-label">Contact Person</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.contact_name }}</dd>
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_name }}</dd>
                         </div>
                         <div>
                             <dt class="field-label">Mobile Number</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.contact_mobile }}</dd>
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_mobile }}</dd>
                         </div>
                         <div>
                             <dt class="field-label">Email</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.contact_email || '—' }}</dd>
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_email || '—' }}</dd>
                         </div>
                         <div class="sm:col-span-2">
                             <dt class="field-label">Address</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.contact_address || '—' }}</dd>
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_address || '—' }}</dd>
                         </div>
                         <div>
                             <dt class="field-label">Event Date</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">{{ formatDate(reservation.event_date) }}</dd>
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ formatDate(reservation.event_date) }}</dd>
                         </div>
                         <div>
                             <dt class="field-label">Event Time</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">{{ formatTime(reservation.event_time) }}</dd>
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ formatTime(reservation.event_time) }}</dd>
                         </div>
                         <div>
                             <dt class="field-label">Assigned Priest</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">
                                 {{ reservation.priest?.name ?? 'Unassigned' }}
                             </dd>
                         </div>
                         <div>
                             <dt class="field-label">Venue</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">
-                                {{ reservation.location?.name ?? 'Unassigned' }}
-                                <span
-                                    v-if="reservation.venue_category_label"
-                                    class="ml-2 inline-block rounded-full px-2 py-0.5 text-xs font-medium"
-                                    :class="{
-                                        'bg-amber-100 text-amber-800': reservation.venue_category === 'main_sanctuary',
-                                        'bg-sky-100 text-sky-800': reservation.venue_category === 'chapel',
-                                        'bg-slate-100 text-slate-700': reservation.venue_category === 'other_venue',
-                                        'bg-gray-100 text-gray-500': reservation.venue_category === 'none',
-                                    }"
-                                >
-                                    {{ reservation.venue_category_label }}
-                                </span>
-                            </dd>
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.location?.name ?? 'Unassigned' }}</dd>
                         </div>
                         <div>
                             <dt class="field-label">Offering Amount</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">
                                 {{ reservation.offering_amount ? `₱${Number(reservation.offering_amount).toLocaleString()}` : '—' }}
                             </dd>
                         </div>
                         <div v-if="reservation.offering_amount">
                             <dt class="field-label">Payment</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a]">
-                                <Link :href="route('financials.index', { search: reservation.contact_name })" class="text-[#3f6470] hover:underline">
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">
+                                <Link :href="route('financials.index', { search: reservation.contact_name })" class="text-[#3f6470] dark:text-slate-300 hover:underline">
                                     {{ (reservation.payment_status ?? 'unpaid').charAt(0).toUpperCase() + (reservation.payment_status ?? 'unpaid').slice(1) }}
                                     <span v-if="reservation.receipt_number"> · O.R. {{ reservation.receipt_number }}</span>
                                 </Link>
@@ -499,15 +485,15 @@ function submitCorrection() {
                     </dl>
                 </div>
 
-                <div v-if="detailEntries.length || reservation.details?.godparents" class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm">
-                    <h3 class="font-serif text-xl font-medium text-[#3f6470]">
+                <div v-if="detailEntries.length || reservation.details?.godparents" class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800">
+                    <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-slate-300">
                         {{ typeLabels[reservation.type] ?? reservation.type }} Details
                     </h3>
 
                     <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                         <div v-for="([key, value]) in detailEntries" :key="key">
                             <dt class="field-label">{{ detailLabel(key) }}</dt>
-                            <dd class="mt-1 whitespace-pre-line text-sm text-[#2f4a4a]">
+                            <dd class="mt-1 whitespace-pre-line text-sm text-[#2f4a4a] dark:text-slate-100">
                                 {{ detailValue(key, value) }}
                             </dd>
                         </div>
@@ -516,7 +502,7 @@ function submitCorrection() {
                     <div v-if="reservation.details?.godparents?.length" class="mt-5">
                         <dt class="field-label">Godparents</dt>
                         <ul class="mt-2 space-y-1">
-                            <li v-for="(gp, i) in reservation.details.godparents" :key="i" class="text-sm text-[#2f4a4a]">
+                            <li v-for="(gp, i) in reservation.details.godparents" :key="i" class="text-sm text-[#2f4a4a] dark:text-slate-100">
                                 {{ gp.name }}
                             </li>
                         </ul>
@@ -535,25 +521,25 @@ function submitCorrection() {
                                 class="flex w-full items-center justify-between text-left"
                             >
                                 <div>
-                                    <p class="text-sm font-semibold text-[#3f6470]">{{ child.child_name || `Child ${ci + 1}` }}</p>
-                                    <p class="mt-1 text-sm text-[#2f4a4a]">Father: {{ child.father_name || '—' }}</p>
-                                    <p class="text-sm text-[#2f4a4a]">Mother: {{ child.mother_maiden_name || '—' }}</p>
+                                    <p class="text-sm font-semibold text-[#3f6470] dark:text-slate-300">{{ child.child_name || `Child ${ci + 1}` }}</p>
+                                    <p class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">Father: {{ child.father_name || '—' }}</p>
+                                    <p class="text-sm text-[#2f4a4a] dark:text-slate-100">Mother: {{ child.mother_maiden_name || '—' }}</p>
                                     <div v-if="child.godparents?.length" class="mt-2">
-                                        <p class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60">Godparents</p>
+                                        <p class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60 dark:text-slate-300">Godparents</p>
                                         <ul class="mt-1 space-y-0.5">
-                                            <li v-for="(gp, gi) in child.godparents" :key="gi" class="text-sm text-[#2f4a4a]">{{ gp.name }}</li>
+                                            <li v-for="(gp, gi) in child.godparents" :key="gi" class="text-sm text-[#2f4a4a] dark:text-slate-100">{{ gp.name }}</li>
                                         </ul>
                                     </div>
                                 </div>
                                 <div class="flex shrink-0 items-center gap-2 pl-3">
                                     <span
                                         v-if="childRequirementItems(ci).length"
-                                        class="whitespace-nowrap rounded-full border border-[#8CA089]/30 bg-[#8CA089]/10 px-2.5 py-1 text-xs font-semibold text-[#3f6470]"
+                                        class="whitespace-nowrap rounded-full border border-[#8CA089]/30 bg-[#8CA089]/10 px-2.5 py-1 text-xs font-semibold text-[#3f6470] dark:text-slate-300"
                                     >
                                         {{ childRequirementsCompleted(ci) }} of {{ childRequirementItems(ci).length }} requirements
                                     </span>
                                     <svg
-                                        class="h-4 w-4 shrink-0 text-[#3f6470]/50 transition-transform"
+                                        class="h-4 w-4 shrink-0 text-[#3f6470]/50 dark:text-slate-300 transition-transform"
                                         :class="{ 'rotate-180': expandedChildIndex === ci }"
                                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                                     >
@@ -566,9 +552,9 @@ function submitCorrection() {
                                 <div
                                     v-for="item in childRequirementItems(ci)"
                                     :key="item.id"
-                                    class="rounded-xl border border-[#3f6470]/10 bg-white/70 p-4"
+                                    class="rounded-xl border border-[#3f6470]/10 bg-white/70 p-4 dark:border-white/10 dark:bg-slate-700/60"
                                 >
-                                    <label class="flex items-start gap-3 text-sm text-[#2f4a4a]">
+                                    <label class="flex items-start gap-3 text-sm text-[#2f4a4a] dark:text-slate-100">
                                         <input v-model="item.is_completed" type="checkbox" class="checkbox-input mt-0.5" />
                                         <span class="font-medium">{{ requirementLabel(item.id) }}</span>
                                     </label>
@@ -584,7 +570,7 @@ function submitCorrection() {
                                         type="button"
                                         @click="saveChecklist"
                                         :disabled="checklistForm.processing"
-                                        class="rounded-full border border-[#3f6470]/20 px-5 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                                        class="rounded-full border border-[#3f6470]/20 px-5 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] dark:text-slate-300 transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
                                     >
                                         Save Checklist
                                     </button>
@@ -606,11 +592,11 @@ function submitCorrection() {
                      group/community baptisms show their checklist per-child above) -->
                 <div
                     v-if="!isGroupBaptism && reservation.requirements && reservation.requirements.length"
-                    class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm"
+                    class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800"
                 >
                     <div class="flex items-center justify-between">
-                        <h3 class="font-serif text-xl font-medium text-[#3f6470]">Requirements</h3>
-                        <span class="rounded-full border border-[#8CA089]/30 bg-[#8CA089]/10 px-3 py-1 text-xs font-semibold text-[#3f6470]">
+                        <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-slate-300">Requirements</h3>
+                        <span class="rounded-full border border-[#8CA089]/30 bg-[#8CA089]/10 px-3 py-1 text-xs font-semibold text-[#3f6470] dark:text-slate-300">
                             {{ completedRequirements }} of {{ totalRequirements }} complete
                         </span>
                     </div>
@@ -624,16 +610,16 @@ function submitCorrection() {
 
                     <div class="mt-5 space-y-6">
                         <div v-for="group in requirementGroups" :key="group.name ?? 'shared'">
-                            <h4 v-if="group.name" class="mb-2 text-sm font-semibold text-[#3f6470]">
+                            <h4 v-if="group.name" class="mb-2 text-sm font-semibold text-[#3f6470] dark:text-slate-300">
                                 {{ group.name }}
                             </h4>
                             <div class="space-y-4">
                                 <div
                                     v-for="item in group.items"
                                     :key="item.id"
-                                    class="rounded-xl border border-[#3f6470]/10 bg-white/70 p-4"
+                                    class="rounded-xl border border-[#3f6470]/10 bg-white/70 p-4 dark:border-white/10 dark:bg-slate-700/60"
                                 >
-                                    <label class="flex items-start gap-3 text-sm text-[#2f4a4a]">
+                                    <label class="flex items-start gap-3 text-sm text-[#2f4a4a] dark:text-slate-100">
                                         <input
                                             v-model="item.is_completed"
                                             type="checkbox"
@@ -657,7 +643,7 @@ function submitCorrection() {
                             type="button"
                             @click="saveChecklist"
                             :disabled="checklistForm.processing"
-                            class="rounded-full border border-[#3f6470]/20 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                            class="rounded-full border border-[#3f6470]/20 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] dark:text-slate-300 transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             Save Checklist
                         </button>
@@ -667,10 +653,10 @@ function submitCorrection() {
                 <!-- Rota / volunteer scheduling — appears once seeded at confirmation -->
                 <div
                     v-if="reservation.rotaAssignments && reservation.rotaAssignments.length"
-                    class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm"
+                    class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800"
                 >
-                    <h3 class="font-serif text-xl font-medium text-[#3f6470]">Rota / Volunteer Team</h3>
-                    <p class="mt-1 text-sm text-[#3f6470]/60">
+                    <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-slate-300">Rota / Volunteer Team</h3>
+                    <p class="mt-1 text-sm text-[#3f6470]/60 dark:text-slate-300">
                         Ministry roles requested for this {{ (typeLabels[reservation.type] ?? reservation.type).toLowerCase() }}.
                     </p>
 
@@ -678,10 +664,10 @@ function submitCorrection() {
                         <div
                             v-for="item in rotaForm.items"
                             :key="item.id"
-                            class="rounded-xl border border-[#3f6470]/10 bg-white/70 p-4"
+                            class="rounded-xl border border-[#3f6470]/10 bg-white/70 p-4 dark:border-white/10 dark:bg-slate-700/60"
                         >
                             <div class="flex flex-wrap items-center justify-between gap-3">
-                                <span class="text-sm font-medium text-[#2f4a4a]">{{ rotaRoleLabel(item.id) }}</span>
+                                <span class="text-sm font-medium text-[#2f4a4a] dark:text-slate-100">{{ rotaRoleLabel(item.id) }}</span>
                                 <select
                                     v-model="item.status"
                                     class="field-input w-auto rounded-full border px-3 py-1 text-xs font-medium capitalize"
@@ -712,7 +698,7 @@ function submitCorrection() {
                             type="button"
                             @click="saveRota"
                             :disabled="rotaForm.processing"
-                            class="rounded-full border border-[#3f6470]/20 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                            class="rounded-full border border-[#3f6470]/20 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] dark:text-slate-300 transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             Save Rota
                         </button>
@@ -723,8 +709,8 @@ function submitCorrection() {
 
                 <!-- Reservation Actions sidebar -->
                 <div class="lg:sticky lg:top-6">
-                    <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm">
-                        <h3 class="font-serif text-xl font-medium text-[#3f6470]">Reservation Actions</h3>
+                    <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800">
+                        <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-slate-300">Reservation Actions</h3>
 
                         <div class="mt-5 space-y-4">
                             <div>
@@ -747,13 +733,13 @@ function submitCorrection() {
                                     id="action-status"
                                     v-model="actionsForm.status"
                                     :disabled="reservation.status === 'completed'"
-                                    class="field-input mt-1.5 capitalize disabled:cursor-not-allowed disabled:bg-[#3f6470]/5 disabled:text-[#3f6470]/50"
+                                    class="field-input mt-1.5 capitalize disabled:cursor-not-allowed disabled:bg-[#3f6470]/5 disabled:text-[#3f6470]/50 dark:text-slate-300"
                                 >
                                     <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
                                         {{ opt.label }}
                                     </option>
                                 </select>
-                                <p v-if="reservation.status === 'completed'" class="mt-1.5 text-xs text-[#3f6470]/50">
+                                <p v-if="reservation.status === 'completed'" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-300">
                                     Already completed — use Archive Reservation below to file it, rather than reopening the status.
                                 </p>
                             </div>
@@ -769,7 +755,7 @@ function submitCorrection() {
                                         {{ opt.label }}
                                     </option>
                                 </select>
-                                <p v-if="actionsForm.payment_status === 'paid'" class="mt-1.5 text-xs text-[#3f6470]/50">
+                                <p v-if="actionsForm.payment_status === 'paid'" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-300">
                                     Marking this Paid records the full offering amount. For a partial amount or O.R. number, use Record Payment on the Financials page instead.
                                 </p>
                             </div>
@@ -782,7 +768,7 @@ function submitCorrection() {
                                 type="button"
                                 @click="saveActions"
                                 :disabled="actionsForm.processing"
-                                class="w-full rounded-full border border-[#3f6470]/20 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
+                                class="w-full rounded-full border border-[#3f6470]/20 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#3f6470] dark:text-slate-300 transition hover:bg-[#E4EDE1]/60 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 Save Changes
                             </button>
@@ -795,11 +781,11 @@ function submitCorrection() {
                                 @click="confirmReservation"
                                 :disabled="!allRequirementsComplete || actionsForm.processing"
                                 :title="confirmTooltip"
-                                class="w-full rounded-full bg-[#8CA089] px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-sm shadow-[#8CA089]/30 transition hover:-translate-y-0.5 hover:bg-[#7c9078] hover:shadow-md disabled:pointer-events-none disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-[#3f6470]/20 disabled:text-[#3f6470]/50 disabled:shadow-none"
+                                class="w-full rounded-full bg-[#8CA089] px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-sm shadow-[#8CA089]/30 transition hover:-translate-y-0.5 hover:bg-[#7c9078] hover:shadow-md disabled:pointer-events-none disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-[#3f6470]/20 disabled:text-[#3f6470]/50 dark:text-slate-300 disabled:shadow-none"
                             >
                                 Confirm Reservation
                             </button>
-                            <p v-if="reservation.status === 'draft' && !allRequirementsComplete" class="text-xs text-[#3f6470]/50">
+                            <p v-if="reservation.status === 'draft' && !allRequirementsComplete" class="text-xs text-[#3f6470]/50 dark:text-slate-300">
                                 {{ confirmTooltip }}
                             </p>
 
@@ -831,7 +817,7 @@ function submitCorrection() {
                             >
                                 Delete Reservation
                             </button>
-                            <p v-else class="text-center text-xs text-[#3f6470]/50 dark:text-slate-500">
+                            <p v-else class="text-center text-xs text-[#3f6470]/50 dark:text-slate-300 dark:text-slate-500">
                                 Completed reservations can't be deleted — they're the record certificates are generated from. Archive it instead if it needs to be filed away.
                             </p>
                         </div>
@@ -841,33 +827,33 @@ function submitCorrection() {
                          EVENT schedule (Event Date/Time) shown above. Every field here
                          is system-generated and read-only; nothing here is entered by
                          the administrator. -->
-                    <div class="mt-6 rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm">
-                        <h3 class="font-serif text-xl font-medium text-[#3f6470]">Reservation Information</h3>
+                    <div class="mt-6 rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800">
+                        <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-slate-300">Reservation Information</h3>
 
                         <dl class="mt-5 space-y-4">
                             <div>
                                 <dt class="field-label">Reservation Number</dt>
-                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.reservation_number ?? '—' }}</dd>
+                                <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.reservation_number ?? '—' }}</dd>
                             </div>
                             <div>
                                 <dt class="field-label">Status</dt>
-                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ statusLabels[reservation.status] ?? reservation.status }}</dd>
+                                <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ statusLabels[reservation.status] ?? reservation.status }}</dd>
                             </div>
                             <div>
                                 <dt class="field-label">Created On</dt>
-                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ formatDateTime(reservation.created_at) }}</dd>
+                                <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ formatDateTime(reservation.created_at) }}</dd>
                             </div>
                             <div>
                                 <dt class="field-label">Created By</dt>
-                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.creator?.name ?? '—' }}</dd>
+                                <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.creator?.name ?? '—' }}</dd>
                             </div>
                             <div>
                                 <dt class="field-label">Last Updated</dt>
-                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ formatDateTime(reservation.updated_at) }}</dd>
+                                <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ formatDateTime(reservation.updated_at) }}</dd>
                             </div>
                             <div v-if="reservation.updater">
                                 <dt class="field-label">Updated By</dt>
-                                <dd class="mt-1 text-sm text-[#2f4a4a]">{{ reservation.updater?.name ?? '—' }}</dd>
+                                <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.updater?.name ?? '—' }}</dd>
                             </div>
                         </dl>
                     </div>
@@ -887,13 +873,13 @@ function submitCorrection() {
             class="fixed inset-0 z-50 flex items-center justify-center bg-[#173528]/40 px-4 py-8 backdrop-blur-sm"
             @click.self="closeCorrectModal"
         >
-            <div class="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div class="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-slate-800">
                 <div class="border-b border-[#3f6470]/10 px-6 py-4">
                     <h2 class="text-lg font-semibold text-[#173528]">Correct Record</h2>
-                    <p class="mt-2 text-sm text-[#3f6470]/80">
+                    <p class="mt-2 text-sm text-[#3f6470]/80 dark:text-slate-300">
                         This is a completed sacramental record.
                     </p>
-                    <p class="text-sm text-[#3f6470]/80">
+                    <p class="text-sm text-[#3f6470]/80 dark:text-slate-300">
                         Corrections should only be made when necessary. The system will record the change in the audit history.
                     </p>
                 </div>
@@ -945,7 +931,7 @@ function submitCorrection() {
                     </div>
 
                     <div v-if="correctableDetailPaths.length" class="space-y-3 rounded-xl border border-[#3f6470]/10 bg-[#F7F5EF] p-4">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60">Sacrament Details</p>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60 dark:text-slate-300">Sacrament Details</p>
                         <div v-for="path in correctableDetailPaths" :key="path">
                             <label class="field-label">{{ correctionLabel(path) }}</label>
                             <input
@@ -961,7 +947,7 @@ function submitCorrection() {
                 <div class="flex items-center justify-end gap-3 border-t border-[#3f6470]/10 px-6 py-4">
                     <button
                         type="button"
-                        class="rounded-full border border-[#3f6470]/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] transition hover:bg-[#3f6470]/5"
+                        class="rounded-full border border-[#3f6470]/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] dark:text-slate-300 transition hover:bg-[#3f6470]/5"
                         @click="closeCorrectModal"
                     >
                         Cancel
@@ -1012,5 +998,28 @@ function submitCorrection() {
     border-radius: 0.35rem;
     border-color: rgba(63, 100, 112, 0.35);
     color: #8CA089;
+}
+
+/* Dark mode — this file didn't have any dark: handling before, so its
+   cards stayed solid white even with the sidebar/topbar already dark
+   (:global() reaches the <html class="dark"> ancestor from this scoped
+   style block, same pattern used in ReservationForm.vue). */
+:global(.dark) .field-label {
+    color: rgba(203, 213, 225, 0.65);
+}
+
+:global(.dark) .field-input {
+    border-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(41, 82, 64, 0.55);
+    color: #F2F4EC;
+}
+
+:global(.dark) .field-input:focus {
+    border-color: #8CA089;
+    box-shadow: 0 0 0 3px rgba(140, 160, 137, 0.3);
+}
+
+:global(.dark) .checkbox-input {
+    border-color: rgba(255, 255, 255, 0.25);
 }
 </style>

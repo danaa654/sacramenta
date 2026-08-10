@@ -45,7 +45,7 @@ const fireflies = Array.from({ length: 16 }, (_, i) => {
         <!-- Dark mode wash -->
         <div
             class="fixed inset-0 -z-10 hidden dark:block"
-            style="background: linear-gradient(180deg, rgba(15,23,42,0.35) 0%, rgba(15,23,42,0.25) 18%, rgba(15,23,42,0.3) 55%, rgba(15,23,42,0.45) 100%);"
+            style="background: linear-gradient(180deg, rgba(34, 7, 41, 0.85) 0%, rgba(15,48,64,0.25) 18%, rgba(15,48,64,0.3) 55%, rgba(15,48,64,0.45) 100%);"
         ></div>
 
         <!-- Drifting sage clouds (light mode only) -->

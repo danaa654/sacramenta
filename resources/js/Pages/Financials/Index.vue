@@ -26,7 +26,7 @@ const paymentStatusStyles = {
     unpaid: 'bg-white text-[#3f6470]/70 border-[#3f6470]/20',
     partial: 'bg-[#F7E9C6] text-[#7a5a1a] border-[#c9a13a]',
     paid: 'bg-[#CFE4C7] text-[#2f5a2a] border-[#5e9a53]',
-    waived: 'bg-slate-100 text-[#3f6470]/50 border-[#3f6470]/15',
+    waived: 'bg-gray-100 text-[#3f6470]/50 border-[#3f6470]/15',
 };
 
 const paymentStatusLabels = {

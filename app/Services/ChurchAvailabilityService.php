@@ -3,30 +3,46 @@
 namespace App\Services;
 
 use App\Models\BlockedDate;
+use App\Models\Location;
 use App\Models\MassSchedule;
 use App\Models\Reservation;
+use App\Support\ReservationDuration;
 use Carbon\Carbon;
 
 /**
  * Church Availability & Conflict Detection Engine.
  *
- * Sacramenta manages a single church venue (the Parish of the Holy Sacraments today, but
- * every reservation already carries a location_id — see Reservation::location
- * — so a second venue only needs its occupancy timeline keyed by
- * location_id; the overlap math below doesn't change). This service is the
- * single source of truth for "is the church free at this date/time",
- * replacing ad-hoc per-priest/per-chapel checks with one whole-church
- * occupancy timeline that:
+ * IMPORTANT: not every reservation happens in the Main Sanctuary. Sacramenta
+ * has multiple physical spaces a reservation can occupy — the Main
+ * Sanctuary, a named Chapel, or (for a School Mass held on campus) nowhere
+ * on parish property at all. The rule this engine enforces is:
  *
- *   - Includes every occupying event (Masses, Weddings, Baptisms, Burials,
- *     First Communions, Confirmations, School Masses, Chapel Masses, and
- *     other approved church events) with its full prep + cleanup buffer.
- *   - Excludes Pamisa sa Kalag, which attaches to an existing Mass slot
- *     instead of reserving independent time (see config/church_schedule.php
- *     `occupying_types`).
- *   - Honors parish-wide BlockedDate periods (Christmas, Holy Week, etc.).
- *   - Powers the live "available time slots" panel, live conflict warnings,
- *     and nearest-available-slot suggestions in ReservationForm.vue.
+ *   SAME VENUE + OVERLAPPING TIME  = conflict
+ *   DIFFERENT VENUE + OVERLAPPING TIME = no venue conflict
+ *
+ * resolveVenue() is the single place that decides which physical venue (if
+ * any) a reservation occupies, given its type, its `details` payload, and
+ * its `location_id`:
+ *
+ *   - Wedding / Baptism / Burial / First Communion / Confirmation / regular
+ *     Masses always resolve to the Main Sanctuary (config
+ *     `church_schedule.main_sanctuary_types`), auto-assigned by
+ *     StoreReservationRequest so this also works before location_id is set.
+ *   - Chapel Mass resolves to a venue keyed by its `details.chapel` name —
+ *     two different chapels never conflict with each other or the Main
+ *     Sanctuary.
+ *   - School Mass resolves to the Main Sanctuary ONLY when
+ *     `details.venue === 'church'`; "On Campus (gym/auditorium)" resolves
+ *     to no venue at all, so it never blocks — or is blocked by — anything
+ *     happening at the church.
+ *   - An explicit `location_id` (any Location record) always wins.
+ *   - House/Business/Vehicle Blessing, Anointing of the Sick, Spiritual
+ *     Direction, Special Intention, "Others", and Pamisa sa Kalag resolve
+ *     to no venue — they happen off-site or ride on an existing Mass slot,
+ *     so they never occupy, and never conflict with, a church venue.
+ *
+ * This service powers the live "available time slots" panel, live conflict
+ * warnings, and nearest-available-slot suggestions in ReservationForm.vue.
  */
 class ChurchAvailabilityService
 {
@@ -39,7 +55,7 @@ class ChurchAvailabilityService
 
     public function durationMinutes(string $type, array $details = []): int
     {
-        return \App\Support\ReservationDuration::minutes($type, $details);
+        return ReservationDuration::minutes($type, $details);
     }
 
     public function label(string $type): string
@@ -53,9 +69,92 @@ class ChurchAvailabilityService
             ?? config('church_schedule.default_priority', 9));
     }
 
+    /**
+     * Whether this reservation TYPE is even capable of occupying a church
+     * venue. This is a coarse, type-only check (matches the frontend's
+     * CHURCH_OCCUPYING_TYPES list) used to decide whether to bother asking
+     * the engine at all. Whether a given reservation actually DOES occupy
+     * a venue — and which one — is resolveVenue()'s job.
+     */
     public function occupiesChurch(string $type): bool
     {
         return in_array($type, config('church_schedule.occupying_types', []), true);
+    }
+
+    /**
+     * The single Main Sanctuary venue descriptor. Resolves the real
+     * Location row when one exists (so it participates in location_id-keyed
+     * conflict checks too), but degrades gracefully to a synthetic key if
+     * the row is missing so the engine never crashes on an un-seeded DB.
+     */
+    public function mainSanctuaryVenue(): array
+    {
+        $name = config('church_schedule.main_sanctuary_name', 'Parish of the Holy Sacraments');
+        $location = Location::where('name', $name)->first();
+
+        return [
+            'key' => $location ? "location:{$location->id}" : 'main_sanctuary',
+            'label' => $name,
+            'kind' => 'main_sanctuary',
+        ];
+    }
+
+    /**
+     * Which physical venue (if any) a reservation with this type/details/
+     * location_id occupies. Returns null when the reservation doesn't
+     * occupy any shared church venue at all (category 4: "No church venue
+     * usage") — e.g. a House Blessing, or a School Mass held on campus.
+     *
+     * An explicit $locationId always wins (an admin who deliberately picks
+     * a venue is always trusted over the type-based default).
+     */
+    public function resolveVenue(string $type, array $details = [], ?int $locationId = null): ?array
+    {
+        if ($locationId) {
+            $location = Location::find($locationId);
+
+            if (! $location) {
+                return null;
+            }
+
+            $mainName = config('church_schedule.main_sanctuary_name', 'Parish of the Holy Sacraments');
+
+            return [
+                'key' => "location:{$location->id}",
+                'label' => $location->name,
+                'kind' => $location->name === $mainName
+                    ? 'main_sanctuary'
+                    : (str_contains(strtolower($location->name), 'chapel') ? 'chapel' : 'other'),
+            ];
+        }
+
+        if (in_array($type, ['mass', 'special_mass'], true)) {
+            return $this->mainSanctuaryVenue();
+        }
+
+        if (in_array($type, config('church_schedule.main_sanctuary_types', []), true)) {
+            return $this->mainSanctuaryVenue();
+        }
+
+        if ($type === 'chapel_mass') {
+            $chapel = trim((string) ($details['chapel'] ?? ''));
+
+            return $chapel !== '' ? [
+                'key' => 'chapel:'.strtolower($chapel),
+                'label' => $chapel,
+                'kind' => 'chapel',
+            ] : null;
+        }
+
+        if ($type === 'school_mass' && ($details['venue'] ?? 'on_campus') === 'church') {
+            return $this->mainSanctuaryVenue();
+        }
+
+        // house_blessing, business_blessing, vehicle_blessing,
+        // anointing_of_the_sick, spiritual_direction, special_intention,
+        // pamisa_sa_kalag, "others", and a School Mass held on campus all
+        // occupy no shared church venue.
+        return null;
     }
 
     /**
@@ -76,11 +175,16 @@ class ChurchAvailabilityService
     }
 
     /**
-     * Every occupied period on the church calendar for a given date, sorted
-     * by start time. Each entry: type, label, start (Carbon), end (Carbon),
-     * reservation_id, priest name, status, priority.
+     * Every occupied period on the parish calendar for a given date, across
+     * EVERY venue, sorted by start time. Each entry: type, label, start
+     * (Carbon), end (Carbon), reservation_id, priest name, status,
+     * priority, venue_key, venue_label, venue_kind. Reservations that
+     * resolve to no venue (resolveVenue() === null) are left out entirely —
+     * they don't occupy anything, so they can't appear in an "occupied"
+     * list. Callers that care about a SPECIFIC venue (freeSlots,
+     * findConflict, etc.) filter this list down by venue_key themselves.
      */
-    public function occupiedPeriods(string $date, ?int $excludeReservationId = null, ?int $locationId = null): array
+    public function occupiedPeriods(string $date, ?int $excludeReservationId = null): array
     {
         $reservations = Reservation::query()
             ->with('priest:id,name')
@@ -89,26 +193,35 @@ class ChurchAvailabilityService
             ->whereIn('status', self::BLOCKING_STATUSES)
             ->whereIn('type', config('church_schedule.occupying_types', []))
             ->when($excludeReservationId, fn ($q) => $q->where('id', '!=', $excludeReservationId))
-            ->when($locationId, fn ($q) => $q->where(function ($q2) use ($locationId) {
-                $q2->whereNull('location_id')->orWhere('location_id', $locationId);
-            }))
             ->get();
 
-        $periods = $reservations->map(function (Reservation $r) {
-            $start = Carbon::parse($r->event_date->format('Y-m-d').' '.$r->event_time);
+        $periods = $reservations
+            ->map(function (Reservation $r) {
+                $venue = $this->resolveVenue($r->type, $r->details ?? [], $r->location_id);
 
-            return [
-                'type' => $r->type,
-                'label' => $this->label($r->type),
-                'reservation_id' => $r->id,
-                'reservation_number' => $r->id ? 'RES-'.str_pad((string) $r->id, 5, '0', STR_PAD_LEFT) : null,
-                'start' => $start,
-                'end' => $start->copy()->addMinutes($this->durationMinutes($r->type, $r->details ?? [])),
-                'priest' => $r->priest?->name,
-                'status' => $r->status,
-                'priority' => $this->priority($r->type),
-            ];
-        });
+                if (! $venue) {
+                    return null;
+                }
+
+                $start = Carbon::parse($r->event_date->format('Y-m-d').' '.$r->event_time);
+
+                return [
+                    'type' => $r->type,
+                    'label' => $this->label($r->type),
+                    'reservation_id' => $r->id,
+                    'reservation_number' => $r->id ? 'RES-'.str_pad((string) $r->id, 5, '0', STR_PAD_LEFT) : null,
+                    'start' => $start,
+                    'end' => $start->copy()->addMinutes($this->durationMinutes($r->type, $r->details ?? [])),
+                    'priest' => $r->priest?->name,
+                    'status' => $r->status,
+                    'priority' => $this->priority($r->type),
+                    'venue_key' => $venue['key'],
+                    'venue_label' => $venue['label'],
+                    'venue_kind' => $venue['kind'],
+                ];
+            })
+            ->filter()
+            ->values();
 
         // Standing weekly Mass template rows (MassSchedule) that haven't
         // materialized into an actual Reservation row yet (e.g. the daily
@@ -116,15 +229,17 @@ class ChurchAvailabilityService
         // engine still blocks against the parish's default Mass schedule
         // even for dates further out. Skips any weekday slot that already
         // has a matching reservation above, to avoid double-counting.
+        // Regular Masses always happen in the Main Sanctuary.
         $weekday = Carbon::parse($date)->dayOfWeek; // Carbon: Sun=0..Sat=6, matches MassSchedule days_of_week
         $reservedTimes = $reservations->pluck('event_time')->map(fn ($t) => substr((string) $t, 0, 5))->all();
+        $mainVenue = $this->mainSanctuaryVenue();
 
         $templateSlots = MassSchedule::query()
             ->where('is_active', true)
             ->get()
             ->filter(fn (MassSchedule $s) => in_array($weekday, $s->days_of_week ?? [], true))
             ->filter(fn (MassSchedule $s) => ! in_array(substr($s->start_time, 0, 5), $reservedTimes, true))
-            ->map(function (MassSchedule $s) use ($date) {
+            ->map(function (MassSchedule $s) use ($date, $mainVenue) {
                 $start = Carbon::parse("{$date} {$s->start_time}");
 
                 return [
@@ -137,6 +252,9 @@ class ChurchAvailabilityService
                     'priest' => null,
                     'status' => 'scheduled',
                     'priority' => $this->priority('mass'),
+                    'venue_key' => $mainVenue['key'],
+                    'venue_label' => $mainVenue['label'],
+                    'venue_kind' => $mainVenue['kind'],
                 ];
             });
 
@@ -147,17 +265,45 @@ class ChurchAvailabilityService
     }
 
     /**
-     * The free/available gaps between occupied periods for a date, within
-     * the configured day window. Each entry: start (Carbon), end (Carbon),
-     * duration in minutes.
+     * occupiedPeriods() filtered down to a single venue (matched by
+     * venue_key) — the actual list a same-venue overlap check should run
+     * against. A null $venue means "this reservation doesn't occupy any
+     * venue", so there is nothing to filter against.
      */
-    public function freeSlots(string $date, ?int $excludeReservationId = null, ?int $locationId = null): array
+    protected function occupiedPeriodsForVenue(string $date, ?int $excludeReservationId, ?array $venue): array
+    {
+        if (! $venue) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $this->occupiedPeriods($date, $excludeReservationId),
+            fn ($p) => $p['venue_key'] === $venue['key']
+        ));
+    }
+
+    /**
+     * The free/available gaps for a date WITHIN A SPECIFIC VENUE, within
+     * the configured day window. Each entry: start (Carbon), end (Carbon),
+     * duration in minutes. A null $venue (the reservation type/details
+     * don't resolve to any shared church venue) means nothing can conflict
+     * with it, so the entire day window counts as free.
+     */
+    public function freeSlots(string $date, ?int $excludeReservationId = null, ?array $venue = null): array
     {
         $window = config('church_schedule.day_window');
         $dayStart = Carbon::parse("{$date} {$window['start']}");
         $dayEnd = Carbon::parse("{$date} {$window['end']}");
 
-        $occupied = $this->occupiedPeriods($date, $excludeReservationId, $locationId);
+        if (! $venue) {
+            return [[
+                'start' => $dayStart->copy(),
+                'end' => $dayEnd->copy(),
+                'duration_minutes' => $dayStart->diffInMinutes($dayEnd),
+            ]];
+        }
+
+        $occupied = $this->occupiedPeriodsForVenue($date, $excludeReservationId, $venue);
 
         $slots = [];
         $cursor = $dayStart->copy();
@@ -189,14 +335,13 @@ class ChurchAvailabilityService
 
     /**
      * The discrete list of Event Times an administrator is allowed to pick
-     * for a given Event Date + reservation type — the backbone of the
-     * Event Time dropdown in ReservationForm.vue, which must never accept
-     * arbitrary typed input. Built from freeSlots() (which already folds
-     * in Regular + Special Mass schedules, existing confirmed reservations,
-     * and blocked dates/times via occupiedPeriods()/isBlocked()), sliced
-     * into $stepMinutes-spaced start times that leave enough room for the
-     * type's full duration before the free window ends. Returns [] when
-     * the date falls inside a BlockedDate period.
+     * for a given Event Date + reservation type (+ details, + location) —
+     * the backbone of the Event Time dropdown in ReservationForm.vue, which
+     * must never accept arbitrary typed input. Built from freeSlots() for
+     * whichever venue this [type, details, location_id] combination
+     * resolves to, sliced into $stepMinutes-spaced start times that leave
+     * enough room for the type's full duration before the free window
+     * ends. Returns [] when the date falls inside a BlockedDate period.
      */
     public function availableSlots(
         string $date,
@@ -210,10 +355,11 @@ class ChurchAvailabilityService
             return [];
         }
 
+        $venue = $this->resolveVenue($type, $details, $locationId);
         $needed = $this->durationMinutes($type, $details);
         $slots = [];
 
-        foreach ($this->freeSlots($date, $excludeReservationId, $locationId) as $slot) {
+        foreach ($this->freeSlots($date, $excludeReservationId, $venue) as $slot) {
             $cursor = $slot['start']->copy();
 
             while ($cursor->copy()->addMinutes($needed)->lte($slot['end'])) {
@@ -226,16 +372,26 @@ class ChurchAvailabilityService
     }
 
     /**
-     * A combined, chronological "what's the church doing all day" timeline
+     * A combined, chronological "what's this venue doing all day" timeline
      * for the availability panel: occupied periods and free gaps
-     * interleaved, exactly like the spec's example display.
+     * interleaved, exactly like the spec's example display — scoped to
+     * whichever venue this [type, details, location_id] resolves to. When
+     * it resolves to no venue at all, the timeline is simply "available"
+     * for the whole day window, since nothing shared is being checked.
      */
-    public function dayTimeline(string $date, ?int $excludeReservationId = null, ?int $locationId = null): array
-    {
-        $occupied = collect($this->occupiedPeriods($date, $excludeReservationId, $locationId))
+    public function dayTimeline(
+        string $date,
+        ?int $excludeReservationId = null,
+        ?int $locationId = null,
+        ?string $type = null,
+        array $details = []
+    ): array {
+        $venue = $type ? $this->resolveVenue($type, $details, $locationId) : null;
+
+        $occupied = collect($this->occupiedPeriodsForVenue($date, $excludeReservationId, $venue))
             ->map(fn ($p) => array_merge($p, ['kind' => 'occupied']));
 
-        $free = collect($this->freeSlots($date, $excludeReservationId, $locationId))
+        $free = collect($this->freeSlots($date, $excludeReservationId, $venue))
             ->map(fn ($s) => array_merge($s, ['kind' => 'available']));
 
         return $occupied->concat($free)
@@ -253,15 +409,20 @@ class ChurchAvailabilityService
                 'reservation_number' => $p['reservation_number'] ?? null,
                 'priest' => $p['priest'] ?? null,
                 'status' => $p['status'] ?? null,
+                'venue_label' => $p['venue_label'] ?? null,
+                'venue_kind' => $p['venue_kind'] ?? null,
             ])
             ->all();
     }
 
     /**
-     * Does the requested [date, time, type] window collide with anything
-     * already occupying the church? Pamisa sa Kalag never conflicts (it
-     * doesn't occupy independent time). Returns the colliding period, or
-     * null when the slot is clear.
+     * Does the requested [date, time, type, details, location] window
+     * collide with anything ALREADY OCCUPYING THE SAME VENUE? Two events
+     * at overlapping times in DIFFERENT venues are not a conflict. Returns
+     * the colliding period (tagged with venue_label/venue_kind so the
+     * caller can say "Main Sanctuary conflict" vs "Chapel conflict" vs
+     * "Other venue conflict"), or null when the slot is clear — including
+     * when this reservation doesn't occupy any venue at all.
      */
     public function findConflict(
         string $date,
@@ -275,10 +436,16 @@ class ChurchAvailabilityService
             return null;
         }
 
+        $venue = $this->resolveVenue($type, $details, $locationId);
+
+        if (! $venue) {
+            return null;
+        }
+
         $start = Carbon::parse("{$date} {$time}");
         $end = $start->copy()->addMinutes($this->durationMinutes($type, $details));
 
-        foreach ($this->occupiedPeriods($date, $excludeReservationId, $locationId) as $period) {
+        foreach ($this->occupiedPeriodsForVenue($date, $excludeReservationId, $venue) as $period) {
             if ($start->lt($period['end']) && $period['start']->lt($end)) {
                 return $period;
             }
@@ -288,12 +455,12 @@ class ChurchAvailabilityService
     }
 
     /**
-     * Nearest available slots long enough for this reservation type,
-     * starting from the requested date/time and looking forward — first
-     * within the same day, then into the following days (up to $searchDays)
-     * if nothing fits. Returns up to $limit suggestions, each with a
-     * human-readable label like "11:30 AM – 1:30 PM" or
-     * "Tomorrow, 9:00 AM – 11:00 AM".
+     * Nearest available slots long enough for this reservation type WITHIN
+     * ITS RESOLVED VENUE, starting from the requested date/time and looking
+     * forward — first within the same day, then into the following days
+     * (up to $searchDays) if nothing fits. Returns up to $limit
+     * suggestions, each with a human-readable label like
+     * "11:30 AM – 1:30 PM" or "Tomorrow, 9:00 AM – 11:00 AM".
      */
     public function suggestSlots(
         string $date,
@@ -304,6 +471,7 @@ class ChurchAvailabilityService
         int $searchDays = 14,
         array $details = []
     ): array {
+        $venue = $this->resolveVenue($type, $details, $locationId);
         $needed = $this->durationMinutes($type, $details);
         $suggestions = [];
         $anchor = Carbon::parse($date);
@@ -315,7 +483,7 @@ class ChurchAvailabilityService
                 continue;
             }
 
-            foreach ($this->freeSlots($checkDate, $excludeReservationId, $locationId) as $slot) {
+            foreach ($this->freeSlots($checkDate, $excludeReservationId, $venue) as $slot) {
                 if ($slot['duration_minutes'] < $needed) {
                     continue;
                 }

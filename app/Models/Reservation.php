@@ -46,6 +46,7 @@ class Reservation extends Model
         'is_locked',
         'venue_category',
         'venue_category_label',
+        'marriage_preparation_status',
     ];
 
     protected $casts = [
@@ -464,25 +465,65 @@ class Reservation extends Model
 
     /**
      * A reservation is "confirmable" if either it has no checklist items
-     * for its type (e.g. house_blessing, others), or every checklist item
-     * has been checked off.
+     * for its type (e.g. house_blessing, others), or none of its *required*
+     * checklist items are still Pending/In Progress. Optional/supporting
+     * items (e.g. a parish-specific certificate) never hold up confirming,
+     * regardless of their status — see ReservationRequirement::isBlocking().
      */
     public function requirementsComplete(): bool
     {
         return $this->requirements->isEmpty()
-            || $this->requirements->every(fn (ReservationRequirement $r) => $r->is_completed);
+            || $this->requirements->every(fn (ReservationRequirement $r) => ! $r->isBlocking());
     }
 
     /**
-     * Names/labels of any checklist items still outstanding, used to build
-     * a specific validation error when someone tries to confirm too early.
+     * Names/labels of any *required* checklist items still outstanding,
+     * used to build a specific validation error when someone tries to
+     * confirm too early. Optional/supporting items are never listed here,
+     * since they don't block confirmation.
      */
     public function incompleteRequirementLabels(): array
     {
         return $this->requirements
-            ->where('is_completed', false)
+            ->filter(fn (ReservationRequirement $r) => $r->isBlocking())
             ->map(fn (ReservationRequirement $r) => $r->child_name ? "{$r->child_name} — {$r->label}" : $r->label)
             ->all();
+    }
+
+    /**
+     * Overall Marriage Preparation Status for a wedding reservation, shown
+     * as a summary banner above the requirements checklist:
+     *
+     *  - "completed"            — every required Pre-Marriage item is
+     *                              Completed (or explicitly Not Required).
+     *  - "ready_for_wedding"     — same as above, distinct label once the
+     *                              reservation itself has been confirmed.
+     *  - "requirements_pending"  — at least one required item is still
+     *                              Pending or In Progress.
+     *
+     * Returns null for any non-wedding reservation, or when the
+     * `requirements` relation hasn't been loaded (so accessing this never
+     * triggers a surprise query, e.g. from a list page).
+     */
+    public function getMarriagePreparationStatusAttribute(): ?string
+    {
+        if ($this->type !== 'wedding' || ! $this->relationLoaded('requirements')) {
+            return null;
+        }
+
+        $required = $this->requirements->filter(fn (ReservationRequirement $r) => $r->is_required);
+
+        if ($required->isEmpty()) {
+            return 'completed';
+        }
+
+        $stillPending = $required->contains(fn (ReservationRequirement $r) => $r->isBlocking());
+
+        if ($stillPending) {
+            return 'requirements_pending';
+        }
+
+        return in_array($this->status, ['confirmed', 'completed'], true) ? 'ready_for_wedding' : 'completed';
     }
 
     /**

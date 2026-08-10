@@ -4,12 +4,20 @@
  * Configuration for the Church Availability & Conflict Detection Engine
  * (App\Services\ChurchAvailabilityService).
  *
- * There is only ONE venue in Sacramenta today (the Parish of the Holy Sacraments), so this
- * engine treats the whole church as a single occupancy timeline per date.
- * Every reservation still carries a location_id (see Reservation::location),
- * so if a parish ever adds a second venue, the engine only needs to key its
- * occupancy timeline by location_id instead of by parish — no change to the
- * core overlap-detection math itself.
+ * Not every reservation happens in the Main Sanctuary. The engine resolves
+ * each reservation to its actual physical venue — Main Sanctuary, a named
+ * Chapel, or none at all (off-site/On Campus events) — via
+ * ChurchAvailabilityService::resolveVenue(), and only flags a conflict when
+ * two occupying events land in the SAME venue with overlapping times:
+ *
+ *   SAME VENUE + OVERLAPPING TIME      = conflict
+ *   DIFFERENT VENUE + OVERLAPPING TIME = no venue conflict
+ *
+ * `main_sanctuary_types` below and Reservation::location_id (see
+ * App\Models\Location) are the two inputs that decide venue; adding a new
+ * physical space just means adding a Location row and, if it should be a
+ * type's automatic default the way the Main Sanctuary is, teaching
+ * resolveVenue() that one additional rule.
  */
 
 return [
@@ -60,11 +68,45 @@ return [
     ],
 
     /**
-     * Reservation `type` values that actually occupy the church and must
-     * be checked for overlaps. Pamisa sa Kalag is deliberately excluded —
-     * it rides on an existing Mass Schedule slot rather than reserving
-     * independent church time (see ChurchAvailabilityService and the
-     * "Pamisa sa Kalag" workflow in ReservationForm.vue).
+     * Reservation `type` values that ALWAYS happen at the parish's single
+     * Main Sanctuary — there's no venue picker for these in the form, so
+     * StoreReservationRequest auto-assigns the Main Sanctuary Location to
+     * them, and ChurchAvailabilityService::resolveVenue() falls back to
+     * the Main Sanctuary for them too when no location_id is set yet
+     * (e.g. while the admin is still composing the reservation).
+     */
+    'main_sanctuary_types' => [
+        'wedding',
+        'baptism',
+        'burial',
+        'first_communion',
+        'confirmation',
+    ],
+
+    /**
+     * The Location record name treated as "the Main Sanctuary" wherever
+     * one isn't explicitly selected. Matches the row seeded by
+     * MassScheduleSeeder / ReservationSeeder.
+     */
+    'main_sanctuary_name' => 'Parish of the Holy Sacraments',
+
+    /**
+     * Reservation `type` values that actually occupy a church venue and
+     * must be checked for overlaps. NOTE: being in this list means a type
+     * is CAPABLE of occupying a venue — whether it actually does, and
+     * WHICH venue, is resolved per-reservation by
+     * ChurchAvailabilityService::resolveVenue() using location_id and
+     * (for School Mass) details.venue. A School Mass held "On Campus"
+     * still appears here but resolves to no venue at all, so it never
+     * conflicts with anything happening at the church.
+     *
+     * Pamisa sa Kalag is deliberately excluded — it rides on an existing
+     * Mass Schedule slot rather than reserving independent church time
+     * (see ChurchAvailabilityService and the "Pamisa sa Kalag" workflow
+     * in ReservationForm.vue). House/Business/Vehicle Blessing,
+     * Anointing of the Sick, Spiritual Direction, and Special Intention
+     * are also excluded — they either happen off-site (the priest
+     * travels) or don't reserve independent church time.
      */
     'occupying_types' => [
         'mass',
@@ -76,12 +118,6 @@ return [
         'confirmation',
         'school_mass',
         'chapel_mass',
-        // house_blessing, business_blessing, vehicle_blessing,
-        // anointing_of_the_sick, spiritual_direction, special_intention,
-        // pamisa_sa_kalag, and the generic "others" catch-all are
-        // deliberately NOT here — they either happen off-site (the
-        // priest travels) or don't reserve independent church time, so
-        // they never occupy, and never conflict with, the church itself.
     ],
 
     /**

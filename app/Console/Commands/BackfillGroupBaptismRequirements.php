@@ -52,7 +52,12 @@ class BackfillGroupBaptismRequirements extends Command
                         'child_name' => $child['child_name'] ?? 'Child '.($index + 1),
                         'key' => $row->key,
                         'label' => $row->label,
+                        'description' => $row->description,
                         'is_completed' => false,
+                        'status' => \App\Models\ReservationRequirement::STATUS_PENDING,
+                        'is_required' => $row->is_required ?? true,
+                        'group_key' => $row->group_key,
+                        'group_label' => $row->group_label,
                     ]);
                 }
             }

@@ -38,8 +38,8 @@ const { isDark, toggle } = useAppearance();
 
         <!-- Switch track -->
         <span
-            class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full opacity-0 transition-colors duration-200 group-hover:opacity-100"
-            :class="[isDark ? 'bg-[#F4A259]' : 'bg-[#8CA089]', { 'opacity-100': expanded }]"
+            class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-[#8CA089] opacity-0 transition-colors duration-200 group-hover:opacity-100"
+            :class="{ 'opacity-100': expanded }"
         >
             <span
                 class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200"

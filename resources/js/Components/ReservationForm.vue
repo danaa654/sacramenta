@@ -4,6 +4,12 @@ import { useForm } from '@inertiajs/vue3';
 import axios from 'axios';
 import ChurchAvailabilityPanel from '@/Components/ChurchAvailabilityPanel.vue';
 
+// Mirrors config('church_schedule.main_sanctuary_types') on the backend —
+// reservation types with no venue picker in this form that always resolve
+// to the Main Sanctuary (StoreReservationRequest auto-assigns it, and
+// ChurchAvailabilityService::resolveVenue() falls back to it too).
+const MAIN_SANCTUARY_TYPES = ['wedding', 'baptism', 'burial', 'first_communion', 'confirmation'];
+
 // Mirrors config('church_schedule.occupying_types') on the backend — the
 // reservation types that actually occupy the single church venue and are
 // checked by the Church Availability & Conflict Detection Engine. Kept in
@@ -523,7 +529,7 @@ const ceremonyTypeInfoOpen = ref(false);
 
 async function refreshAvailability() {
     const chapel = form.type === 'chapel_mass' ? form.details.chapel : null;
-    const usesMainSanctuary = ['wedding', 'baptism', 'burial'].includes(form.type);
+    const usesMainSanctuary = MAIN_SANCTUARY_TYPES.includes(form.type);
 
     if (!form.event_date || (!form.priest_id && !chapel && !usesMainSanctuary)) {
         takenSlots.value = [];
@@ -592,10 +598,10 @@ const conflictWarning = computed(() => {
 const availableEventTimes = ref([]);
 const loadingEventTimes = ref(false);
 
-// Only the fields ReservationDuration (backend) actually reads for a
-// duration-affecting variant — kept minimal so the ?details= query string
-// stays small and stable (e.g. typing a contact name doesn't retrigger it).
-function durationRelevantDetails() {
+// Only the fields the backend engine actually reads for venue/duration
+// resolution — kept minimal so the ?details= query string stays small and
+// stable (e.g. typing a contact name doesn't retrigger it).
+function venueAndDurationRelevantDetails() {
     const d = form.details ?? {};
 
     if (form.type === 'wedding') {
@@ -606,6 +612,12 @@ function durationRelevantDetails() {
     }
     if (form.type === 'first_communion') {
         return { booking_mode: d.booking_mode, students: d.students ?? [] };
+    }
+    if (form.type === 'school_mass') {
+        return { venue: d.venue };
+    }
+    if (form.type === 'chapel_mass') {
+        return { chapel: d.chapel };
     }
     return {};
 }
@@ -625,7 +637,7 @@ async function refreshAvailableEventTimes() {
                 type: form.type,
                 exclude: props.reservation?.id ?? undefined,
                 location_id: form.location_id || undefined,
-                details: JSON.stringify(durationRelevantDetails()),
+                details: JSON.stringify(venueAndDurationRelevantDetails()),
             },
         });
         availableEventTimes.value = data.available_slots ?? [];
@@ -653,6 +665,8 @@ watch(
         form.details?.children?.length,
         form.details?.booking_mode,
         form.details?.students?.length,
+        form.details?.venue,
+        form.details?.chapel,
     ],
     refreshAvailableEventTimes,
     { immediate: true }
@@ -1551,8 +1565,8 @@ const massScheduleRequiredButMissing = computed(() => {
                             <option v-for="priest in priests" :key="priest.id" :value="priest.id">{{ priest.name }}</option>
                         </select>
                         <p v-if="form.errors.priest_id" class="field-error">{{ form.errors.priest_id }}</p>
-                        <p v-if="['wedding', 'baptism', 'burial'].includes(form.type)" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
-                            Held at Parish of the Holy Sacraments — another confirmed Wedding, Baptism, or Burial at the same time will be blocked, same as a priest double-booking.
+                        <p v-if="['wedding', 'baptism', 'burial', 'first_communion', 'confirmation'].includes(form.type)" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
+                            Held at Parish of the Holy Sacraments — another confirmed Wedding, Baptism, Burial, First Communion, or Confirmation at the same time will be blocked, same as a priest double-booking.
                         </p>
                     </div>
 
@@ -1564,6 +1578,7 @@ const massScheduleRequiredButMissing = computed(() => {
                             :location-id="form.location_id || null"
                             :exclude-id="props.reservation?.id ?? null"
                             :occupies-church="occupiesChurch"
+                            :details="venueAndDurationRelevantDetails()"
                             @conflict-change="onChurchConflictChange"
                             @select-slot="onSelectSuggestedSlot"
                         />
