@@ -74,6 +74,15 @@ return [
      * them, and ChurchAvailabilityService::resolveVenue() falls back to
      * the Main Sanctuary for them too when no location_id is set yet
      * (e.g. while the admin is still composing the reservation).
+     *
+     * Pamisa sa Kalag is included here for LOCATION DISPLAY purposes only
+     * (it's always physically at the Main Church, so the Reservation
+     * Details page shows the same read-only "Main Church" location as
+     * everything else in this list) — it is deliberately left OUT of
+     * `occupying_types` below, since it attaches to an existing Mass
+     * Schedule slot rather than reserving independent church time, and
+     * so must never be checked against that slot (or anything else) for
+     * an overlap of its own.
      */
     'main_sanctuary_types' => [
         'wedding',
@@ -81,6 +90,7 @@ return [
         'burial',
         'first_communion',
         'confirmation',
+        'pamisa_sa_kalag',
     ],
 
     /**

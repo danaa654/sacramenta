@@ -74,9 +74,19 @@ class CalendarController extends Controller
             ->orderBy('start_time')
             ->get();
 
+        // Canonical Interview / Marriage Banns / Wedding Rehearsal — same
+        // idea as the Pre-Cana seminars above, but their dates live in
+        // ReservationRequirement (meta / date_started / date_completed —
+        // see MarriagePreparationSchedulingService) rather than their own
+        // table. Loaded here as its own small set so each shows as its
+        // own visually-distinguishable calendar chip, never merged into
+        // the Wedding event itself (requirement #14/#15).
+        $marriagePrep = $this->marriagePrepEvents($start, $end);
+
         return Inertia::render('Calendar/Index', [
             'reservations' => $reservations,
             'seminars' => $seminars,
+            'marriagePrep' => $marriagePrep,
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
             'massSchedules' => $massSchedules,
             'colors' => config('calendar.colors'),
@@ -84,5 +94,65 @@ class CalendarController extends Controller
             'month' => $month,
             'year' => $year,
         ]);
+    }
+
+    /**
+     * Flat list of Canonical Interview / Marriage Banns / Wedding
+     * Rehearsal calendar entries falling in the given month, one row per
+     * activity per wedding. `schedule_source` is passed through so the
+     * frontend can render a still-suggested (not yet reviewed) date more
+     * lightly than one the admin has confirmed.
+     */
+    protected function marriagePrepEvents(Carbon $start, Carbon $end): array
+    {
+        $items = \App\Models\ReservationRequirement::query()
+            ->whereIn('key', ['canonical_interview', 'wedding_rehearsal'])
+            ->whereHas('reservation', fn ($q) => $q->where('type', 'wedding'))
+            ->with('reservation:id,contact_name')
+            ->get()
+            ->map(function ($r) {
+                $isInterview = $r->key === 'canonical_interview';
+                $date = $isInterview ? ($r->meta['interview_date'] ?? null) : ($r->meta['rehearsal_date'] ?? null);
+                $time = $isInterview ? ($r->meta['interview_time'] ?? null) : ($r->meta['rehearsal_time'] ?? null);
+
+                if (! $date) {
+                    return null;
+                }
+
+                return [
+                    'id' => "{$r->key}-{$r->id}",
+                    'type' => $r->key,
+                    'date' => $date,
+                    'time' => $time,
+                    'venue' => $r->meta['venue'] ?? null,
+                    'schedule_source' => $r->schedule_source,
+                    'reservation_id' => $r->reservation_id,
+                    'contact_name' => $r->reservation?->contact_name,
+                ];
+            })
+            ->filter()
+            ->filter(fn ($e) => $e['date'] >= $start->toDateString() && $e['date'] <= $end->toDateString())
+            ->values();
+
+        $banns = \App\Models\ReservationRequirement::query()
+            ->where('key', 'marriage_banns')
+            ->whereHas('reservation', fn ($q) => $q->where('type', 'wedding'))
+            ->whereNotNull('date_started')
+            ->with('reservation:id,contact_name')
+            ->get()
+            ->filter(fn ($r) => $r->date_started->toDateString() <= $end->toDateString()
+                && ($r->date_completed?->toDateString() ?? $r->date_started->toDateString()) >= $start->toDateString())
+            ->map(fn ($r) => [
+                'id' => "marriage_banns-{$r->id}",
+                'type' => 'marriage_banns',
+                'date' => $r->date_started->toDateString(),
+                'end_date' => $r->date_completed?->toDateString(),
+                'schedule_source' => $r->schedule_source,
+                'reservation_id' => $r->reservation_id,
+                'contact_name' => $r->reservation?->contact_name,
+            ])
+            ->values();
+
+        return $items->concat($banns)->values()->all();
     }
 }

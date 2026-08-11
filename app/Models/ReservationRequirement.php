@@ -69,6 +69,12 @@ class ReservationRequirement extends Model
         'date_started',
         'date_completed',
         'meta',
+        // 'generated' when MarriagePreparationSchedulingService produced
+        // this item's date(s) from the Wedding Date, 'manual' the moment
+        // an admin edits it themselves. Only meaningful for wedding
+        // marriage-preparation items (canonical_interview, marriage_banns,
+        // wedding_rehearsal) — null for every other checklist item.
+        'schedule_source',
     ];
 
     protected $casts = [

@@ -10,6 +10,7 @@ use App\Models\Priest;
 use App\Models\Reservation;
 use App\Services\AuditLogger;
 use App\Services\ChurchAvailabilityService;
+use App\Services\MarriagePreparationSchedulingService;
 use App\Services\NotificationDispatcher;
 use App\Services\SchedulingConflictService;
 use Carbon\Carbon;
@@ -130,10 +131,19 @@ class ReservationController extends Controller
 
         $this->seedRequirements($reservation);
 
+        // Wedding Date selected -> automatically suggest Canonical
+        // Interview / Pre-Cana / Marriage Banns / Rehearsal dates. Purely
+        // a starting point: every field stays fully editable, and nothing
+        // here blocks or delays creating the reservation itself — see
+        // MarriagePreparationSchedulingService.
+        if ($reservation->type === 'wedding' && $reservation->event_date) {
+            app(MarriagePreparationSchedulingService::class)->generate($reservation);
+        }
+
         $this->notifier->notifyAdmins(
             kind: 'new_reservation',
             title: 'New reservation created',
-            body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} needs review.",
+            body: "{$reservation->display_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} needs review.",
             reservation: $reservation,
             except: $request->user()
         );
@@ -265,7 +275,37 @@ class ReservationController extends Controller
             $data['overridden_at'] = now();
         }
 
+        // Detect an actual Wedding Date change BEFORE saving, so we know
+        // whether to recalculate suggestions afterward.
+        $eventDateChanged = $reservation->type === 'wedding'
+            && array_key_exists('event_date', $data)
+            && (string) $reservation->getOriginal('event_date') !== (string) $data['event_date'];
+
         $reservation->update($data);
+
+        // Wedding Date changed -> refresh only the SUGGESTED (not
+        // manually-adjusted) activities to match the new date.
+        // schedule_source = 'manual' items are left completely alone —
+        // see requirement #4 / MarriagePreparationSchedulingService.
+        $prepReviewNotice = null;
+
+        if ($eventDateChanged) {
+            app(MarriagePreparationSchedulingService::class)->generate($reservation, overwriteManual: false);
+
+            // Requirement #5 — a manually adjusted schedule is never
+            // silently overwritten by a Wedding Date change; instead the
+            // admin is told to review it (and can use "Regenerate
+            // Suggested Schedule" if they want it recalculated).
+            $reservation->loadMissing('requirements', 'seminar');
+            $hasManualPrep = $reservation->requirements
+                ->whereIn('key', ['canonical_interview', 'marriage_banns', 'wedding_rehearsal'])
+                ->contains(fn ($r) => $r->schedule_source === 'manual');
+            $hasManualSeminar = $reservation->seminar?->schedule_source === 'manual';
+
+            if ($hasManualPrep || $hasManualSeminar) {
+                $prepReviewNotice = 'Wedding date changed. Some preparation schedules may need to be reviewed.';
+            }
+        }
 
         AuditLogger::reservationUpdated($reservation);
 
@@ -273,8 +313,10 @@ class ReservationController extends Controller
             AuditLogger::conflictOverridden($reservation, (string) $request->input('override_reason'));
         }
 
-        return redirect()->route('reservations.index')
+        $redirect = redirect()->route('reservations.index')
             ->with('success', 'Reservation updated.');
+
+        return $prepReviewNotice ? $redirect->with('warning', $prepReviewNotice) : $redirect;
     }
 
     /**
@@ -373,7 +415,7 @@ class ReservationController extends Controller
         $this->notifier->notifyAdmins(
             kind: 'cancelled',
             title: 'Reservation cancelled',
-            body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} was cancelled.",
+            body: "{$reservation->display_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} was cancelled.",
             except: $request->user()
         );
 
@@ -407,12 +449,128 @@ class ReservationController extends Controller
             'items.*.meta' => ['nullable', 'array'],
         ]);
 
+        $schedulingService = app(MarriagePreparationSchedulingService::class);
+        $rules = config('marriage_preparation_rules');
+
         foreach ($validated['items'] as $item) {
+            $requirement = $reservation->requirements->firstWhere('id', $item['id'])
+                ?? $reservation->requirements()->find($item['id']);
+
             $update = ['note' => $item['note'] ?? null];
 
             foreach (['date_started', 'date_completed', 'meta'] as $optionalField) {
                 if (array_key_exists($optionalField, $item)) {
                     $update[$optionalField] = $item[$optionalField];
+                }
+            }
+
+            // Canonical Interview, Marriage Banns, and Wedding Rehearsal
+            // carry their suggested dates through this same endpoint (see
+            // WeddingRequirementsPanel.vue). The moment an admin submits a
+            // change to one of those date-bearing fields, flip it to
+            // 'manual' so it's never silently overwritten by a later
+            // Wedding Date edit or schedule regeneration — see
+            // MarriagePreparationSchedulingService::generate().
+            if (array_key_exists('date_started', $item) || array_key_exists('date_completed', $item) || array_key_exists('meta', $item)) {
+                $update['schedule_source'] = 'manual';
+            }
+
+            // Requirement #7 — a marriage-preparation activity must occur
+            // before the Wedding Date. Requirement #8 — reuse the
+            // existing conflict-detection engine for venue/time collisions.
+            if ($requirement && $reservation->type === 'wedding') {
+                if ($requirement->key === 'canonical_interview' && ! empty($update['meta']['interview_date'])) {
+                    if ($error = $schedulingService->validateBeforeWedding($reservation, 'Canonical Interview', $update['meta']['interview_date'])) {
+                        return back()->withErrors(['schedule' => $error])->withInput();
+                    }
+                    if (! empty($update['meta']['interview_time']) && ! empty($update['meta']['venue'])) {
+                        $conflict = $this->conflicts->findPrepActivityConflict(
+                            'canonical_interview', 'interview_date', 'interview_time',
+                            $rules['canonical_interview']['duration_minutes'],
+                            $update['meta']['venue'], $update['meta']['interview_date'], $update['meta']['interview_time'],
+                            $requirement->id
+                        );
+                        if ($conflict) {
+                            return back()->withErrors(['schedule' => "{$update['meta']['venue']} is already booked for another Canonical Interview at that time."])->withInput();
+                        }
+                    }
+                    // A manually confirmed date is, by definition, Scheduled.
+                    $update['meta']['status'] = 'scheduled';
+                }
+
+                if ($requirement->key === 'wedding_rehearsal' && ! empty($update['meta']['rehearsal_date'])) {
+                    if ($error = $schedulingService->validateBeforeWedding($reservation, 'Wedding Rehearsal', $update['meta']['rehearsal_date'])) {
+                        return back()->withErrors(['schedule' => $error])->withInput();
+                    }
+                    if (! empty($update['meta']['rehearsal_time']) && ! empty($update['meta']['venue'])) {
+                        // Requirement: "Start Time" + "End Time" (or a
+                        // duration) are both editable in the Adjust
+                        // Schedule modal — derive the minutes actually
+                        // used for conflict-checking and storage from
+                        // whichever the admin supplied, falling back to
+                        // the configured default (60 min).
+                        $defaultDuration = (int) $rules['wedding_rehearsal']['duration_minutes'];
+                        $durationMinutes = $defaultDuration;
+
+                        if (! empty($update['meta']['rehearsal_end_time'])) {
+                            $start = Carbon::parse($update['meta']['rehearsal_time']);
+                            $end = Carbon::parse($update['meta']['rehearsal_end_time']);
+                            $durationMinutes = $end->gt($start) ? $start->diffInMinutes($end) : $defaultDuration;
+                        } elseif (! empty($update['meta']['duration_minutes'])) {
+                            $durationMinutes = (int) $update['meta']['duration_minutes'];
+                        }
+
+                        // Requirement #6/#3 — re-run FULL conflict detection
+                        // (Main Church venue AND assigned priest) the moment
+                        // the admin adjusts the suggested rehearsal, not
+                        // just a venue-only check. Blocks the save on
+                        // either kind of collision.
+                        $conflict = $this->conflicts->findRehearsalSlotConflict(
+                            $update['meta']['rehearsal_date'],
+                            $update['meta']['rehearsal_time'],
+                            $durationMinutes,
+                            $update['meta']['venue'],
+                            $reservation->location_id,
+                            $reservation->priest_id,
+                            $requirement->id,
+                            $reservation->id
+                        );
+                        if ($conflict) {
+                            return back()->withErrors(['schedule' => $conflict])->withInput();
+                        }
+
+                        // A manually confirmed date/time is, by definition,
+                        // Scheduled — not just a suggestion anymore. Also
+                        // fill in the derived end time/duration so the
+                        // stored meta always has both, regardless of which
+                        // one the admin actually typed.
+                        $update['meta']['rehearsal_end_time'] = $update['meta']['rehearsal_end_time']
+                            ?? Carbon::parse($update['meta']['rehearsal_time'])->addMinutes($durationMinutes)->format('H:i');
+                        $update['meta']['duration_minutes'] = $durationMinutes;
+                        $update['meta']['status'] = 'scheduled';
+                    }
+                }
+
+                if ($requirement->key === 'marriage_banns' && ! empty($update['meta']['banns_date_3'])) {
+                    $b1 = $update['meta']['banns_date_1'] ?? null;
+                    $b2 = $update['meta']['banns_date_2'] ?? null;
+                    $b3 = $update['meta']['banns_date_3'];
+
+                    // Requirement #4 — the three announcement dates must be
+                    // in chronological order.
+                    if ($b1 && $b2 && ! (Carbon::parse($b1)->lt(Carbon::parse($b2)) && Carbon::parse($b2)->lt(Carbon::parse($b3)))) {
+                        return back()->withErrors(['schedule' => 'The three Marriage Banns announcement dates must be in chronological order.'])->withInput();
+                    }
+
+                    if ($error = $schedulingService->validateBeforeWedding($reservation, 'Marriage Banns', $b3)) {
+                        return back()->withErrors(['schedule' => $error])->withInput();
+                    }
+
+                    // A manually confirmed set of dates is, by definition,
+                    // Scheduled — and keep the legacy range columns in sync.
+                    $update['meta']['status'] = 'scheduled';
+                    $update['date_started'] = $b1;
+                    $update['date_completed'] = $b3;
                 }
             }
 
@@ -679,7 +837,7 @@ class ReservationController extends Controller
         $this->notifier->notifyAdmins(
             kind: 'confirmed',
             title: 'Reservation confirmed',
-            body: "{$reservation->contact_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} is now confirmed.",
+            body: "{$reservation->display_name}'s ".str_replace('_', ' ', $reservation->type)." on {$reservation->event_date->format('M j')} is now confirmed.",
             reservation: $reservation,
             except: $request->user()
         );

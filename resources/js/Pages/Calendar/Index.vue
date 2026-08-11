@@ -16,6 +16,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    marriagePrep: {
+        type: Array,
+        default: () => [],
+    },
     priests: {
         type: Array,
         default: () => [],
@@ -60,6 +64,9 @@ const typeLabels = {
     special_intention: 'Special Intention / Petition',
     others: 'Others',
     pre_cana_seminar: 'Pre-Cana Seminar',
+    canonical_interview: 'Canonical Interview',
+    marriage_banns: 'Marriage Banns',
+    wedding_rehearsal: 'Wedding Rehearsal',
 };
 
 // Pending statuses (draft) render hollow/dashed; confirmed renders solid;
@@ -70,6 +77,11 @@ const STATUS_OPACITY = {
     confirmed: 1,
     completed: 0.75,
     archived: 0.35,
+    // Marriage-preparation chips use this when they're still a
+    // system SUGGESTION the admin hasn't reviewed/adjusted yet
+    // (schedule_source === 'generated') — a lighter, dashed-feeling
+    // treatment so it reads as tentative, same spirit as "draft" above.
+    suggested: 0.4,
 };
 
 const selectedPriest = ref('all');
@@ -161,6 +173,34 @@ const massesByDate = computed(() => {
 
 // ---- FullCalendar event mapping ----
 
+// The reservation's `location` relation only covers types that use a real
+// Location record (Main Church types, and School Mass when venue='church').
+// Chapel Mass, School Mass "on campus", and Others store their location as
+// free text in `details` instead — this resolves whichever applies so the
+// calendar always shows where an event actually is (request #12).
+function resolveLocationName(r) {
+    if (r.location?.name) {
+        return r.location.name;
+    }
+
+    if (r.type === 'chapel_mass') {
+        return r.details?.chapel || null;
+    }
+
+    if (r.type === 'school_mass') {
+        const school = r.details?.school_name;
+        return r.details?.venue === 'on_campus'
+            ? (school ? `${school} — On Campus (Gym/Auditorium)` : 'On Campus (Gym/Auditorium)')
+            : school;
+    }
+
+    if (r.type === 'others') {
+        return r.details?.location || null;
+    }
+
+    return null;
+}
+
 const calendarEvents = computed(() => {
     const events = otherReservations.value.map((r) => {
         const color = colorFor(r.type);
@@ -179,7 +219,7 @@ const calendarEvents = computed(() => {
                 type: r.type,
                 reservationId: r.id,
                 priestName: r.priest?.name,
-                locationName: r.location?.name,
+                locationName: resolveLocationName(r),
                 time: formatTime(r.event_time),
             },
         };
@@ -213,13 +253,45 @@ const calendarEvents = computed(() => {
         };
     });
 
-    return [...events, ...seminarEvents];
+    return [...events, ...seminarEvents, ...marriagePrepEventsRaw()];
 });
+
+// Canonical Interview / Marriage Banns / Wedding Rehearsal — see
+// CalendarController::marriagePrepEvents(). Each gets its own chip,
+// colored distinctly (config/calendar.php), and rendered lighter/dashed
+// while still just a system suggestion (schedule_source === 'generated')
+// the admin hasn't reviewed yet — see eventDidMount() below.
+function marriagePrepEventsRaw() {
+    return props.marriagePrep.map((e) => {
+        const color = props.colors[e.type] ?? props.defaultColor;
+        const label = typeLabels[e.type] ?? e.type;
+        const suggested = e.schedule_source === 'generated';
+
+        return {
+            id: `prep-${e.id}`,
+            title: `${label}${e.contact_name ? ' — ' + e.contact_name : ''}${suggested ? ' (Suggested)' : ''}`,
+            start: e.time ? `${e.date}T${e.time}` : e.date,
+            end: e.end_date && e.end_date !== e.date ? e.end_date : undefined,
+            allDay: !e.time,
+            backgroundColor: color,
+            borderColor: color,
+            textColor: '#ffffff',
+            extendedProps: {
+                status: suggested ? 'suggested' : 'confirmed',
+                type: e.type,
+                reservationId: e.reservation_id,
+                locationName: e.venue,
+                time: formatTime(e.time),
+                suggested,
+            },
+        };
+    });
+}
 
 function eventDidMount(info) {
     const status = info.event.extendedProps.status;
     info.el.style.opacity = String(STATUS_OPACITY[status] ?? 1);
-    if (status === 'draft') {
+    if (status === 'draft' || status === 'suggested') {
         info.el.style.borderStyle = 'dashed';
     }
 

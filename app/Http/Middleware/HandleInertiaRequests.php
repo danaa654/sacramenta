@@ -58,6 +58,10 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
+                // e.g. MarriagePreparationController::regenerate, and the
+                // "Wedding date changed — some preparation schedules may
+                // need to be reviewed" notice from ReservationController::update.
+                'warning' => fn () => $request->session()->get('warning'),
             ],
         ];
     }

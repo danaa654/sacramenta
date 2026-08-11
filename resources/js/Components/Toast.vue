@@ -30,6 +30,10 @@ watch(
     () => page.props.flash?.error,
     (msg) => push('error', msg)
 );
+watch(
+    () => page.props.flash?.warning,
+    (msg) => push('warning', msg)
+);
 </script>
 
 <template>
@@ -39,9 +43,11 @@ watch(
                 v-for="toast in toasts"
                 :key="toast.id"
                 class="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm"
-                :class="toast.type === 'success'
-                    ? 'border-[#4f7a4a]/30 bg-[#E4EDE1]/95 text-[#2f4a2b]'
-                    : 'border-[#B84545]/30 bg-[#F3D9D9]/95 text-[#8a2f2f]'"
+                :class="{
+                    'border-[#4f7a4a]/30 bg-[#E4EDE1]/95 text-[#2f4a2b]': toast.type === 'success',
+                    'border-[#B84545]/30 bg-[#F3D9D9]/95 text-[#8a2f2f]': toast.type === 'error',
+                    'border-[#c98a3a]/30 bg-[#F7E9C6]/95 text-[#7a5a1a]': toast.type === 'warning',
+                }"
             >
                 <span class="mt-0.5 text-lg leading-none">{{ toast.type === 'success' ? '✓' : '⚠' }}</span>
                 <p class="flex-1 text-sm font-medium">{{ toast.message }}</p>

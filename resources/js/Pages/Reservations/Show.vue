@@ -110,6 +110,46 @@ const statusLabels = {
     archived: 'Cancelled',
 };
 
+// Mirrors config('church_schedule.main_sanctuary_types') — these types
+// always show the read-only Main Church location, never the raw
+// `location` relation name (which is only "Unassigned" before an admin
+// picks one, and these types never offer that picker in the first place).
+const MAIN_SANCTUARY_TYPES = ['wedding', 'baptism', 'burial', 'first_communion', 'confirmation', 'pamisa_sa_kalag'];
+const MAIN_CHURCH_LABEL = 'Main Church — Parish of the Holy Sacraments';
+
+// Which label the Location/Venue row uses — matches the field label shown
+// on the reservation form for the same type (see ReservationForm.vue).
+const locationLabel = computed(() => {
+    if (MAIN_SANCTUARY_TYPES.includes(props.reservation.type)) return 'Location';
+    if (props.reservation.type === 'chapel_mass') return 'Chapel / Barangay';
+    if (props.reservation.type === 'school_mass') return 'Venue';
+    if (props.reservation.type === 'others') return 'Location / Venue';
+    return 'Venue';
+});
+
+// The actual location text for that row — resolved per type since Chapel
+// Mass, School Mass "on campus", and Others store it as free text in
+// `details` rather than a `location_id` relation (see
+// ChurchAvailabilityService::resolveVenue() on the backend, which this
+// mirrors for display purposes only).
+const locationValue = computed(() => {
+    const r = props.reservation;
+
+    if (MAIN_SANCTUARY_TYPES.includes(r.type)) return MAIN_CHURCH_LABEL;
+
+    if (r.type === 'chapel_mass') return r.details?.chapel || '—';
+
+    if (r.type === 'school_mass') {
+        const venue = detailValueLabels.venue[r.details?.venue] ?? r.details?.venue;
+        const school = r.details?.school_name;
+        return [school, venue].filter(Boolean).join(' — ') || '—';
+    }
+
+    if (r.type === 'others') return r.details?.location || '—';
+
+    return r.location?.name ?? 'Unassigned';
+});
+
 function detailLabel(key) {
     return key
         .split('_')
@@ -301,7 +341,7 @@ function archiveReservation() {
 }
 
 function deleteReservation() {
-    if (confirm(`Delete the reservation for ${props.reservation.contact_name}? This cannot be undone.`)) {
+    if (confirm(`Delete the reservation for ${props.reservation.contact_name || props.reservation.display_name}? This cannot be undone.`)) {
         router.delete(route('reservations.destroy', props.reservation.id));
     }
 }
@@ -447,22 +487,24 @@ function submitCorrection() {
                     </div>
 
                     <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
-                        <div>
-                            <dt class="field-label">Contact Person</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_name }}</dd>
-                        </div>
-                        <div>
-                            <dt class="field-label">Mobile Number</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_mobile }}</dd>
-                        </div>
-                        <div>
-                            <dt class="field-label">Email</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_email || '—' }}</dd>
-                        </div>
-                        <div class="sm:col-span-2">
-                            <dt class="field-label">Address</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_address || '—' }}</dd>
-                        </div>
+                        <template v-if="reservation.type !== 'pamisa_sa_kalag'">
+                            <div>
+                                <dt class="field-label">Contact Person</dt>
+                                <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_name }}</dd>
+                            </div>
+                            <div>
+                                <dt class="field-label">Mobile Number</dt>
+                                <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_mobile }}</dd>
+                            </div>
+                            <div>
+                                <dt class="field-label">Email</dt>
+                                <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_email || '—' }}</dd>
+                            </div>
+                            <div class="sm:col-span-2">
+                                <dt class="field-label">Address</dt>
+                                <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.contact_address || '—' }}</dd>
+                            </div>
+                        </template>
                         <div>
                             <dt class="field-label">Event Date</dt>
                             <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ formatDate(reservation.event_date) }}</dd>
@@ -478,8 +520,8 @@ function submitCorrection() {
                             </dd>
                         </div>
                         <div>
-                            <dt class="field-label">Venue</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ reservation.location?.name ?? 'Unassigned' }}</dd>
+                            <dt class="field-label">{{ locationLabel }}</dt>
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ locationValue }}</dd>
                         </div>
                         <div>
                             <dt class="field-label">Offering Amount</dt>

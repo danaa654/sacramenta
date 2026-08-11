@@ -65,6 +65,12 @@ class SeminarController extends Controller
                 'notes' => $validated['notes'] ?? null,
                 'status' => WeddingSeminar::STATUS_SCHEDULED,
                 'completed_at' => null,
+                // The admin just entered this through the schedule form —
+                // mark it manual so a later Wedding Date edit or
+                // "Regenerate Suggested Schedule" (see
+                // MarriagePreparationSchedulingService) never silently
+                // overwrites it without an explicit confirmation.
+                'schedule_source' => 'manual',
             ]
         );
 
@@ -96,6 +102,7 @@ class SeminarController extends Controller
             'facilitators' => $validated['facilitators'] ?? [],
             'notes' => $validated['notes'] ?? null,
             'status' => WeddingSeminar::STATUS_SCHEDULED,
+            'schedule_source' => 'manual',
         ]);
 
         $this->syncChecklistStatus($reservation, 'scheduled');

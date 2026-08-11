@@ -164,8 +164,17 @@ function subjectName(r) {
     return r.display_name;
 }
 
+/**
+ * The row's bold primary line. contact_name is empty for Pamisa sa Kalag
+ * (it has no contact profile — see StoreReservationRequest), so fall back
+ * to display_name (the deceased-name summary) instead of showing blank.
+ */
+function primaryLabel(r) {
+    return r.contact_name || r.display_name || 'N/A';
+}
+
 function destroy(reservation) {
-    if (confirm(`Delete the reservation for ${reservation.contact_name}? This cannot be undone.`)) {
+    if (confirm(`Delete the reservation for ${reservation.contact_name || reservation.display_name}? This cannot be undone.`)) {
         router.delete(route('reservations.destroy', reservation.id));
     }
 }
@@ -273,11 +282,11 @@ function openReservation(reservation) {
                                 class="cursor-pointer transition hover:bg-[#E4EDE1]/40 dark:hover:bg-white/5"
                             >
                                 <td class="whitespace-nowrap px-6 py-4">
-                                    <p class="text-sm font-medium text-[#2f4a4a] dark:text-slate-100">{{ r.contact_name }}</p>
+                                    <p class="text-sm font-medium text-[#2f4a4a] dark:text-slate-100">{{ primaryLabel(r) }}</p>
                                     <p v-if="subjectName(r)" class="text-xs font-medium text-[#4f7a4a] dark:text-[#8CA089]">
                                         For: {{ subjectName(r) }}
                                     </p>
-                                    <p class="text-xs text-[#3f6470]/50 dark:text-slate-400">{{ r.contact_mobile }}</p>
+                                    <p v-if="r.contact_mobile" class="text-xs text-[#3f6470]/50 dark:text-slate-400">{{ r.contact_mobile }}</p>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-[#2f4a4a] dark:text-slate-200">
                                     {{ typeLabels[r.type] ?? r.type }}

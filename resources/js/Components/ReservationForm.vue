@@ -8,7 +8,18 @@ import ChurchAvailabilityPanel from '@/Components/ChurchAvailabilityPanel.vue';
 // reservation types with no venue picker in this form that always resolve
 // to the Main Sanctuary (StoreReservationRequest auto-assigns it, and
 // ChurchAvailabilityService::resolveVenue() falls back to it too).
-const MAIN_SANCTUARY_TYPES = ['wedding', 'baptism', 'burial', 'first_communion', 'confirmation'];
+// Pamisa sa Kalag is included for LOCATION DISPLAY purposes (it's always
+// physically at the Main Church) but is deliberately NOT in
+// CHURCH_OCCUPYING_TYPES below — it attaches to an existing Mass Schedule
+// slot rather than reserving independent church time, so it never
+// participates in the conflict engine on its own (see
+// config/church_schedule.php for the same distinction server-side).
+const MAIN_SANCTUARY_TYPES = ['wedding', 'baptism', 'burial', 'first_communion', 'confirmation', 'pamisa_sa_kalag'];
+
+// Display label for the read-only Location field shown on every
+// MAIN_SANCTUARY_TYPES reservation — kept as one constant so the wording
+// is identical everywhere it appears (matches config('church_schedule.main_sanctuary_name')).
+const MAIN_CHURCH_LABEL = 'Main Church — Parish of the Holy Sacraments';
 
 // Mirrors config('church_schedule.occupying_types') on the backend — the
 // reservation types that actually occupy the single church venue and are
@@ -165,7 +176,11 @@ function defaultDetailsFor(type) {
                 ceremony_type: 'nuptial_mass',
                 canonical_interview: false,
                 marriage_banns: false,
-                rehearsal_date: '',
+                // Wedding Rehearsal is NOT stored here. The single source
+                // of truth for it is the wedding_rehearsal
+                // ReservationRequirement (meta.rehearsal_date/time/etc.),
+                // managed entirely in the Marriage Preparation section —
+                // see WeddingRequirementsPanel.vue.
             };
         case 'baptism':
             return {
@@ -209,6 +224,8 @@ function defaultDetailsFor(type) {
             return { topic: '' };
         case 'special_intention':
             return { intention: '' };
+        case 'others':
+            return { location: '' };
         case 'pamisa_sa_kalag':
             return { names: [''], mass_schedule_id: '', mass_type: '' };
         case 'school_mass':
@@ -845,8 +862,11 @@ const massScheduleRequiredButMissing = computed(() => {
             </div>
         </div>
 
-        <!-- Global fields -->
-        <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
+        <!-- Global fields — hidden for Pamisa sa Kalag, which is a Mass
+             intention / deceased-name list entered directly by the admin
+             rather than a normal reservation with a customer/contact
+             profile (see the Pamisa sa Kalag Details card below instead). -->
+        <div v-if="form.type !== 'pamisa_sa_kalag'" class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
             <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-white">Reservation Information</h3>
             <p class="mt-1 text-sm text-[#3f6470]/60 dark:text-slate-400">Who is making this reservation.</p>
 
@@ -889,6 +909,18 @@ const massScheduleRequiredButMissing = computed(() => {
                     <label class="field-label">{{ form.type === 'pamisa_sa_kalag' ? 'Mass Offering / Donation (Optional)' : 'Offering / Donation (Optional)' }}</label>
                     <input v-model="form.offering_amount" type="number" min="0" step="0.01" class="field-input" placeholder="0.00" />
                     <p v-if="form.errors.offering_amount" class="field-error">{{ form.errors.offering_amount }}</p>
+                </div>
+
+                <!-- Wedding / Baptism / Burial / First Communion / Pamisa sa Kalag always take
+                     place at the Main Church — shown read-only, never a venue picker. -->
+                <div v-if="MAIN_SANCTUARY_TYPES.includes(form.type)">
+                    <label class="field-label">Location</label>
+                    <div class="field-input flex items-center bg-[#FAF7F0] text-[#173528]/80 dark:bg-slate-700/60 dark:text-slate-300">
+                        {{ MAIN_CHURCH_LABEL }}
+                    </div>
+                    <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
+                        Automatically assigned — {{ typeLabels[form.type] }} is always held at the Main Church.
+                    </p>
                 </div>
             </div>
 
@@ -961,13 +993,6 @@ const massScheduleRequiredButMissing = computed(() => {
                         </label>
                     </div>
                     <p v-if="form.errors['details.ceremony_type']" class="field-error">{{ form.errors['details.ceremony_type'] }}</p>
-                </div>
-
-                <div>
-                    <label class="field-label">Wedding Rehearsal Date</label>
-                    <input v-model="form.details.rehearsal_date" type="date" class="field-input" />
-                    <p v-if="form.errors['details.rehearsal_date']" class="field-error">{{ form.errors['details.rehearsal_date'] }}</p>
-                    <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">Usually held a few days before the wedding with the entourage.</p>
                 </div>
 
                 <div class="sm:col-span-2">
@@ -1512,7 +1537,15 @@ const massScheduleRequiredButMissing = computed(() => {
                 <p v-if="form.errors['details.intention']" class="field-error">{{ form.errors['details.intention'] }}</p>
             </div>
 
-            <!-- Others (not otherwise categorized): no extra fields yet -->
+            <!-- Others: no Main Church/Chapel/School fits, so the location
+                 is whatever the admin types — never a shared, conflict-checked venue. -->
+            <div v-else-if="form.type === 'others'" class="mt-5">
+                <label class="field-label">Location / Venue</label>
+                <input v-model="form.details.location" v-uppercase type="text" class="field-input" placeholder="Enter location" />
+                <p v-if="form.errors['details.location']" class="field-error">{{ form.errors['details.location'] }}</p>
+            </div>
+
+            <!-- Anything else not otherwise categorized: no extra fields yet -->
             <p v-else class="mt-5 text-sm text-[#3f6470]/50 dark:text-slate-500">
                 No additional details needed for this event type.
             </p>

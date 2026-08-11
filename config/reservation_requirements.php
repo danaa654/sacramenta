@@ -68,6 +68,19 @@ return [
                 'group_label' => 'Pre-Marriage Requirements',
             ],
             [
+                'key' => 'wedding_rehearsal',
+                'label' => 'Wedding Rehearsal',
+                'description' => 'Optional but recommended run-through before the ceremony.',
+                // Never blocks confirming the reservation — see
+                // MarriagePreparationSchedulingService, which suggests a
+                // date for this the same way it does for the required
+                // items above, but the parish decides case-by-case
+                // whether a given couple actually needs one.
+                'is_required' => false,
+                'group_key' => 'pre_marriage',
+                'group_label' => 'Pre-Marriage Requirements',
+            ],
+            [
                 'key' => 'reservation_deposit',
                 'label' => 'Reservation Deposit Paid',
                 'is_required' => false,

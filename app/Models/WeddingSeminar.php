@@ -60,6 +60,11 @@ class WeddingSeminar extends Model
         'notes',
         'status',
         'completed_at',
+        // 'generated' when MarriagePreparationSchedulingService produced
+        // this schedule from the Wedding Date, 'manual' the moment an
+        // admin schedules/edits it themselves (see SeminarController).
+        // Null for older rows that predate this feature.
+        'schedule_source',
     ];
 
     protected $casts = [

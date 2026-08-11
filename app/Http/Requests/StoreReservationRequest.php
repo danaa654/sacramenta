@@ -15,17 +15,20 @@ use Illuminate\Validation\Validator;
 class StoreReservationRequest extends FormRequest
 {
     /**
-     * Wedding, Baptism, Burial, First Communion, and Confirmation only
-     * ever happen at the parish's Main Sanctuary — there's no venue picker
-     * for these types in the form, so we assign it here rather than
-     * relying on the UI. This makes the existing venue-conflict check
-     * (findLocationConflict, already used for confirm-time and
+     * Wedding, Baptism, Burial, First Communion, Confirmation, and Pamisa
+     * sa Kalag only ever happen at the parish's Main Sanctuary — there's
+     * no venue picker for these types in the form, so we assign it here
+     * rather than relying on the UI. This makes the existing venue-conflict
+     * check (findLocationConflict, already used for confirm-time and
      * priest-style double-booking prevention) apply to these types
      * automatically, the same way the priest conflict check already does.
      * Mirrors config('church_schedule.main_sanctuary_types') — the single
      * source of truth ChurchAvailabilityService::resolveVenue() also reads
      * from, so both engines agree on which types default to the Main
-     * Sanctuary.
+     * Sanctuary. (Pamisa sa Kalag still doesn't participate in the
+     * conflict engine itself — see config('church_schedule.occupying_types')
+     * — this assignment is only so it displays the same read-only Main
+     * Church location as the others.)
      */
     protected function mainSanctuaryTypes(): array
     {
@@ -61,8 +64,14 @@ class StoreReservationRequest extends FormRequest
                 'anointing_of_the_sick', 'spiritual_direction', 'special_intention',
                 'others',
             ])],
-            'contact_name' => ['required', 'string', 'max:255'],
-            'contact_mobile' => ['required', 'string', 'max:30'],
+            // Pamisa sa Kalag is a Mass intention / deceased-name list
+            // entered directly by the admin, not a normal reservation with
+            // a customer/contact profile — the Reservation Information
+            // card is hidden for it in the form (ReservationForm.vue), so
+            // don't require the fields it doesn't collect. Every other
+            // type keeps them required exactly as before.
+            'contact_name' => [$type === 'pamisa_sa_kalag' ? 'nullable' : 'required', 'string', 'max:255'],
+            'contact_mobile' => [$type === 'pamisa_sa_kalag' ? 'nullable' : 'required', 'string', 'max:30'],
             'contact_email' => ['nullable', 'email', 'max:255'],
             'contact_address' => ['nullable', 'string', 'max:500'],
             // Past dates are blocked only on create — editing an existing
@@ -212,7 +221,16 @@ class StoreReservationRequest extends FormRequest
 
         $locationId = $this->input('location_id');
 
-        if ($locationId) {
+        // Pamisa sa Kalag deliberately excluded — it always shares the
+        // exact date/time of the existing Mass Schedule slot it attaches
+        // to (see the Mass Schedule picker in ReservationForm.vue), so a
+        // same-location check here would always "conflict" with the very
+        // Mass it's riding on. It got a location_id above purely for
+        // read-only display (see mainSanctuaryTypes() docblock) — it was
+        // never meant to reserve independent time at that location, which
+        // is exactly what checkChurchAvailability() already assumes by
+        // skipping this type entirely.
+        if ($locationId && $type !== 'pamisa_sa_kalag') {
             $conflict = $service->findLocationConflict(
                 $locationId,
                 $date,
@@ -269,7 +287,15 @@ class StoreReservationRequest extends FormRequest
                 'details.ceremony_type' => ['required', Rule::in(['nuptial_mass', 'liturgy_of_the_word'])],
                 'details.canonical_interview' => ['boolean'],
                 'details.marriage_banns' => ['boolean'],
-                'details.rehearsal_date' => ['nullable', 'date'],
+                // Wedding Rehearsal is intentionally NOT validated here.
+                // Its one source of truth is the wedding_rehearsal
+                // ReservationRequirement (meta.rehearsal_date/time/venue/
+                // facilitator), managed via
+                // reservations.requirements.update and the automatic
+                // suggestion engine — see
+                // MarriagePreparationSchedulingService. A details.rehearsal_date
+                // field was removed from the Wedding Details form to avoid
+                // two schedules that could drift out of sync.
             ],
             'baptism' => $this->input('details.baptism_type') === 'group' ? [
                 'details.baptism_type' => ['required', Rule::in(['individual', 'group'])],
@@ -296,6 +322,7 @@ class StoreReservationRequest extends FormRequest
             ],
             'pamisa_sa_kalag' => [
                 'details.names' => ['required', 'string'],
+                'details.mass_schedule_id' => ['required'],
             ],
             'school_mass' => [
                 'details.school_name' => ['required', 'string', 'max:255'],
@@ -350,6 +377,12 @@ class StoreReservationRequest extends FormRequest
             'special_intention' => [
                 'details.intention' => ['required', 'string', 'max:1000'],
             ],
+            // No shared/conflict-checked venue — whatever the admin types
+            // is purely informational (see ChurchAvailabilityService::
+            // resolveVenue(), which returns no venue for 'others').
+            'others' => [
+                'details.location' => ['nullable', 'string', 'max:255'],
+            ],
             default => [],
         };
     }
@@ -360,7 +393,6 @@ class StoreReservationRequest extends FormRequest
             'details.groom_name' => "groom's name",
             'details.bride_name' => "bride's name",
             'details.ceremony_type' => 'ceremony type',
-            'details.rehearsal_date' => 'rehearsal date',
             'details.child_name' => "child's name",
             'details.father_name' => "father's name",
             'details.mother_maiden_name' => "mother's maiden name",
@@ -380,6 +412,7 @@ class StoreReservationRequest extends FormRequest
             'details.item_description' => 'vehicle / article description',
             'details.patient_location' => 'hospital room / home address',
             'details.intention' => 'intention / petition',
+            'details.location' => 'location / venue',
         ];
     }
 }

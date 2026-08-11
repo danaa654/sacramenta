@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Reservation;
+use App\Models\ReservationRequirement;
 use App\Models\WeddingSeminar;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -206,6 +207,116 @@ class SchedulingConflictService
                 if ($reservationConflict) {
                     return $reservationConflict;
                 }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Same idea as findSeminarVenueConflict(), but for the Canonical
+     * Interview and Wedding Rehearsal activities, whose date/time/venue
+     * live in ReservationRequirement.meta rather than their own table
+     * (see MarriagePreparationSchedulingService). Only checks other
+     * wedding reservations' items of the SAME activity key, since those
+     * are the only two that store a comparable date/time/venue shape.
+     *
+     * $dateField/$timeField name which meta keys hold the date and start
+     * time for this activity ('interview_date'/'interview_time' or
+     * 'rehearsal_date'/'rehearsal_time'). Duration comes from
+     * config/marriage_preparation_rules.php.
+     */
+    public function findPrepActivityConflict(
+        string $activityKey,
+        string $dateField,
+        string $timeField,
+        int $durationMinutes,
+        string $venue,
+        string $date,
+        string $time,
+        ?int $excludeRequirementId = null
+    ): ?ReservationRequirement {
+        if (trim($venue) === '') {
+            return null;
+        }
+
+        $start = Carbon::parse("{$date} {$time}");
+        $end = $start->copy()->addMinutes($durationMinutes);
+
+        return ReservationRequirement::query()
+            ->with('reservation:id,contact_name')
+            ->where('key', $activityKey)
+            ->where("meta->{$dateField}", $date)
+            ->where('meta->venue', $venue)
+            ->when($excludeRequirementId, fn ($q) => $q->where('id', '!=', $excludeRequirementId))
+            ->get()
+            ->first(function (ReservationRequirement $existing) use ($start, $end, $date, $timeField, $durationMinutes) {
+                $existingTime = $existing->meta[$timeField] ?? null;
+
+                if (! $existingTime) {
+                    return false;
+                }
+
+                $existingStart = Carbon::parse("{$date} {$existingTime}");
+                $existingEnd = $existingStart->copy()->addMinutes($durationMinutes);
+
+                return $start->lt($existingEnd) && $existingStart->lt($end);
+            });
+    }
+
+    /**
+     * Combined venue + priest availability check for a single candidate
+     * Wedding Rehearsal slot, used by both the automatic suggestion
+     * search (MarriagePreparationSchedulingService::applyWeddingRehearsal)
+     * and the admin's manual "Adjust Schedule" save.
+     *
+     * Requirement #3: a rehearsal slot is only free when BOTH the Main
+     * Church venue AND the assigned priest are free — either one being
+     * busy makes the slot unavailable. Checks, in order:
+     *
+     *  A. Main Church — every OTHER reservation type that uses the same
+     *     shared location_id (Mass, Wedding, Baptism, Burial, First
+     *     Communion, Pamisa sa Kalag, another Wedding Rehearsal, etc.),
+     *     via findLocationConflict().
+     *  B. Other Wedding Rehearsals at the same venue text, via
+     *     findPrepActivityConflict() — covers parishes where the
+     *     rehearsal venue isn't backed by a Locations row.
+     *  C. The assigned priest's own schedule across all reservation
+     *     types, via findPriestConflict().
+     *
+     * Returns a short human-readable reason for the FIRST conflict found,
+     * or null when the slot is free.
+     */
+    public function findRehearsalSlotConflict(
+        string $date,
+        string $time,
+        int $durationMinutes,
+        string $venue,
+        ?int $locationId,
+        ?int $priestId,
+        ?int $excludeRequirementId = null,
+        ?int $excludeReservationId = null
+    ): ?string {
+        if ($locationId) {
+            $conflict = $this->findLocationConflict($locationId, $date, $time, 'wedding_rehearsal', $excludeReservationId, ['duration_minutes' => $durationMinutes]);
+            if ($conflict) {
+                return "{$venue} is already occupied by another scheduled event ({$conflict->contact_name}'s ".str_replace('_', ' ', $conflict->type).') at that time.';
+            }
+        }
+
+        $prepConflict = $this->findPrepActivityConflict(
+            'wedding_rehearsal', 'rehearsal_date', 'rehearsal_time',
+            $durationMinutes, $venue, $date, $time, $excludeRequirementId
+        );
+        if ($prepConflict) {
+            $who = $prepConflict->reservation?->contact_name ?? 'another couple';
+            return "{$venue} is already booked for {$who}'s Wedding Rehearsal at that time.";
+        }
+
+        if ($priestId) {
+            $priestConflict = $this->findPriestConflict($priestId, $date, $time, 'wedding_rehearsal', $excludeReservationId, ['duration_minutes' => $durationMinutes]);
+            if ($priestConflict) {
+                return "The assigned priest is already scheduled for {$priestConflict->contact_name}'s ".str_replace('_', ' ', $priestConflict->type)." at that time.";
             }
         }
 

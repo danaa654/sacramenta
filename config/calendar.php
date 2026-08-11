@@ -37,6 +37,15 @@ return [
         'spiritual_direction' => '#7c3aed', // purple
         'special_intention' => '#7c3aed', // purple
         'others' => '#7c3aed', // purple
+
+        // Marriage Preparation activities (requirement #14) — each its own
+        // shade so Canonical Interview / Marriage Banns / Wedding
+        // Rehearsal / Pre-Cana Seminar are visually distinguishable from
+        // each other AND from the Wedding event itself.
+        'pre_cana_seminar' => '#a3739c', // mauve (existing)
+        'canonical_interview' => '#0d9488', // teal
+        'marriage_banns' => '#b45309', // amber/brown
+        'wedding_rehearsal' => '#be123c', // rose
     ],
 
     'default_color' => '#7c3aed',

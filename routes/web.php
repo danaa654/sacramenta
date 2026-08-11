@@ -3,6 +3,7 @@
 use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ChurchAvailabilityController;
+use App\Http\Controllers\MarriagePreparationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinancialsController;
 use App\Http\Controllers\MassScheduleController;
@@ -82,6 +83,27 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('reservations.seminar.complete');
     Route::delete('reservations/{reservation}/seminar/{seminar}', [SeminarController::class, 'destroy'])
         ->name('reservations.seminar.destroy');
+
+    // "Regenerate Suggested Schedule" — recalculates Canonical Interview,
+    // Pre-Cana, Marriage Banns, and Wedding Rehearsal from the current
+    // Wedding Date, including any manually-adjusted ones (the admin
+    // confirms this client-side first). See MarriagePreparationController.
+    Route::post('reservations/{reservation}/marriage-preparation/regenerate', [MarriagePreparationController::class, 'regenerate'])
+        ->name('reservations.marriage-preparation.regenerate');
+
+    // "Accept Suggestion" for the automatically-generated Wedding
+    // Rehearsal Schedule — see MarriagePreparationController::acceptRehearsal.
+    Route::post('reservations/{reservation}/marriage-preparation/accept-rehearsal', [MarriagePreparationController::class, 'acceptRehearsal'])
+        ->name('reservations.marriage-preparation.accept-rehearsal');
+
+    // Same "Accept Suggestion" pattern, for the other three marriage-prep
+    // activities — see MarriagePreparationController.
+    Route::post('reservations/{reservation}/marriage-preparation/accept-interview', [MarriagePreparationController::class, 'acceptInterview'])
+        ->name('reservations.marriage-preparation.accept-interview');
+    Route::post('reservations/{reservation}/marriage-preparation/accept-banns', [MarriagePreparationController::class, 'acceptBanns'])
+        ->name('reservations.marriage-preparation.accept-banns');
+    Route::post('reservations/{reservation}/marriage-preparation/accept-pre-cana', [MarriagePreparationController::class, 'acceptPreCana'])
+        ->name('reservations.marriage-preparation.accept-pre-cana');
 
     Route::patch('reservations/{reservation}/rota', [RotaController::class, 'update'])
         ->name('reservations.rota.update');
