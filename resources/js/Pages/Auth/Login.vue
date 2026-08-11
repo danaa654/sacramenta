@@ -6,6 +6,7 @@ import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import { ref } from 'vue';
 
 defineProps({
     canResetPassword: {
@@ -21,6 +22,8 @@ const form = useForm({
     password: '',
     remember: false,
 });
+
+const showPassword = ref(false);
 
 const submit = () => {
     form.post(route('login'), {
@@ -69,15 +72,35 @@ const submit = () => {
             <div>
                 <InputLabel for="password" value="Password" />
 
-                <TextInput
-                    id="password"
-                    type="password"
-                    class="mt-1.5"
-                    v-model="form.password"
-                    required
-                    autocomplete="current-password"
-                    placeholder="••••••••"
-                />
+                <div class="relative mt-1.5">
+                    <TextInput
+                        id="password"
+                        :type="showPassword ? 'text' : 'password'"
+                        class="pr-10"
+                        v-model="form.password"
+                        required
+                        autocomplete="current-password"
+                        placeholder="••••••••"
+                    />
+
+                    <button
+                        type="button"
+                        @click="showPassword = !showPassword"
+                        class="absolute inset-y-0 right-0 flex items-center px-3 text-[#3f6470]/50 hover:text-[#3f6470] dark:text-slate-400 dark:hover:text-slate-200"
+                        :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                        tabindex="-1"
+                    >
+                        <svg v-if="!showPassword" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1.5 12s4-7.5 10.5-7.5S22.5 12 22.5 12s-4 7.5-10.5 7.5S1.5 12 1.5 12z" />
+                            <circle cx="12" cy="12" r="3" />
+                        </svg>
+                        <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 3l18 18" />
+                            <path d="M10.6 10.6a3 3 0 004.24 4.24" />
+                            <path d="M9.36 5.6A10.6 10.6 0 0112 5.25c6.5 0 10.5 6.75 10.5 6.75a17.2 17.2 0 01-3.42 4.24M6.6 6.6C3.9 8.3 1.5 12 1.5 12s4 6.75 10.5 6.75c1.36 0 2.6-.28 3.7-.75" />
+                        </svg>
+                    </button>
+                </div>
 
                 <InputError class="mt-2" :message="form.errors.password" />
             </div>

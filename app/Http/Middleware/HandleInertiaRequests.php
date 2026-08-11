@@ -44,9 +44,11 @@ class HandleInertiaRequests extends Middleware
                     ->map(fn ($n) => [
                         'id' => $n->id,
                         'kind' => $n->data['kind'] ?? 'reminder',
+                        'priority' => $n->data['priority'] ?? 'info',
                         'title' => $n->data['title'] ?? '',
                         'body' => $n->data['body'] ?? '',
                         'category' => $n->data['category'] ?? null,
+                        'action_label' => $n->data['action_label'] ?? 'View Reservation',
                         'url' => $n->data['url'] ?? null,
                         'read' => $n->read_at !== null,
                         'created_at' => $n->created_at->diffForHumans(),

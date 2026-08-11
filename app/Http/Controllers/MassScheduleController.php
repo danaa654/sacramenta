@@ -35,6 +35,7 @@ class MassScheduleController extends Controller
     public function __construct(
         protected NotificationDispatcher $notifier,
         protected SchedulingConflictService $conflicts,
+        protected \App\Services\ChurchAvailabilityService $availability,
     ) {
     }
 
@@ -90,10 +91,13 @@ class MassScheduleController extends Controller
      * `repeat_until` is given) a daily series sharing one `series_id`, one
      * per date from `event_date` through `repeat_until` inclusive.
      *
-     * Each occurrence is checked for a priest conflict individually (a
-     * different priest is expected on different nights of a novena), and
-     * the whole submission is rejected if ANY occurrence would collide —
-     * better to surface it up front than partially create the series.
+     * Every occurrence is checked for BOTH a Main Church conflict (the
+     * church can only host one Mass at a time, regardless of priest) and
+     * a priest conflict (a different priest is expected on different
+     * nights of a novena, so this is checked per-occurrence rather than
+     * once), and the whole submission is rejected if ANY occurrence would
+     * collide on either — better to surface it up front than partially
+     * create the series.
      */
     public function store(Request $request): RedirectResponse
     {
@@ -107,7 +111,7 @@ class MassScheduleController extends Controller
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $churchId = Location::where('name', 'Parish of the Holy Sacraments')->value('id');
+        $churchId = Location::where('name', config('church_schedule.main_sanctuary_name', 'Parish of the Holy Sacraments'))->value('id');
 
         $dates = [];
         $cursor = \Carbon\Carbon::parse($validated['event_date']);
@@ -123,6 +127,34 @@ class MassScheduleController extends Controller
             'notes' => $validated['notes'] ?? null,
             'is_special' => true,
         ];
+
+        // The Main Church is a single shared resource — it can only ever
+        // host one Mass at a time, independent of which priest (if any)
+        // is assigned. Checked for every occurrence up front (same as the
+        // priest check below), so a multi-day series is rejected as a
+        // whole rather than partially created. Uses the same Church
+        // Availability & Conflict Detection Engine that Reservations use
+        // (ChurchAvailabilityService::findConflict), so a Mass Schedule
+        // entry and e.g. a Wedding booked into the Main Church are
+        // checked against each other, not just against other Masses.
+        foreach ($dates as $date) {
+            $conflict = $this->availability->findConflict(
+                $date,
+                $validated['event_time'],
+                'mass',
+                null,
+                $churchId,
+                $details
+            );
+
+            if ($conflict) {
+                $conflictTime = $conflict['start']->format('g:i A').' – '.$conflict['end']->format('g:i A');
+
+                return back()
+                    ->withInput()
+                    ->withErrors(['event_time' => "Schedule Conflict — The Main Church already has \"{$conflict['label']}\" scheduled from {$conflictTime} on ".\Carbon\Carbon::parse($date)->format('M j').'. Another Mass cannot be scheduled during this time.']);
+            }
+        }
 
         if (! empty($validated['priest_id'])) {
             foreach ($dates as $date) {

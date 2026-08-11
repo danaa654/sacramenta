@@ -264,6 +264,17 @@ function submitSpecialMass() {
                             <p v-if="form.errors.repeat_until" class="mt-1 text-xs text-[#B84545]">{{ form.errors.repeat_until }}</p>
                         </div>
 
+                        <div class="sm:col-span-2">
+                            <label class="text-xs font-medium text-[#3f6470] dark:text-slate-300">Location</label>
+                            <div class="mt-1 flex items-center gap-2 rounded-lg border border-[#3f6470]/15 bg-[#FAF7F0] px-3 py-2 text-sm text-[#173528] dark:border-white/10 dark:bg-slate-700/60 dark:text-slate-100">
+                                <span class="rounded-full bg-[#E4EDE1] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#4f7a4a]">Main Church</span>
+                                <span>Main Church — Parish of the Holy Sacraments</span>
+                            </div>
+                            <p class="mt-1 text-[11px] text-[#3f6470]/50 dark:text-slate-400">
+                                Mass Schedule always takes place at the parish's Main Church — there is no venue to choose.
+                            </p>
+                        </div>
+
                         <div>
                             <label class="text-xs font-medium text-[#3f6470] dark:text-slate-300">Time</label>
                             <input
@@ -327,10 +338,10 @@ function submitSpecialMass() {
                 </div>
 
                 <div
-                    v-if="page.props.errors?.priest_id"
+                    v-if="page.props.errors?.priest_id || page.props.errors?.event_time"
                     class="rounded-2xl border border-[#B84545]/30 bg-[#F3D9D9]/60 p-4 text-sm font-medium text-[#8a2f2f] shadow-md"
                 >
-                    ⚠ {{ page.props.errors.priest_id }}
+                    ⚠ {{ page.props.errors.priest_id || page.props.errors.event_time }}
                 </div>
 
                 <div v-if="dateKeys.length === 0" class="rounded-2xl border border-white/80 bg-white/90 p-8 text-center text-sm text-[#3f6470]/70 shadow-md dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-300">
@@ -379,7 +390,8 @@ function submitSpecialMass() {
                                     </span>
                                 </p>
                                 <p class="text-xs text-[#3f6470]/60 dark:text-slate-400">
-                                    {{ mass.location?.name ?? 'No venue set' }}
+                                    <span class="mr-1 rounded-full bg-[#E4EDE1] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#4f7a4a]">Main Church</span>
+                                    {{ mass.location?.name ?? 'Main Church — Parish of the Holy Sacraments' }}
                                     <span v-if="mass.priest">· {{ mass.priest.name }}</span>
                                 </p>
                             </div>

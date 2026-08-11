@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { router, usePage } from '@inertiajs/vue3';
+import { router, usePage, Link } from '@inertiajs/vue3';
 
 const page = usePage();
 
@@ -27,6 +27,8 @@ function openNotification(n) {
     }
 }
 
+// icon/background color, keyed by `kind` -- keep in sync with the `kind`
+// values emitted by ReservationActivityNotification (see its docblock).
 const icons = {
     new_reservation: { bg: 'bg-[#E4EDE1]', fg: 'text-[#4f7a4a]' },
     confirmed: { bg: 'bg-[#E4EDE1]', fg: 'text-[#4f7a4a]' },
@@ -35,10 +37,30 @@ const icons = {
     reminder: { bg: 'bg-[#E5DEF5]', fg: 'text-[#6B4FA0]' },
     cancelled: { bg: 'bg-[#F5D9D9]', fg: 'text-[#B84545]' },
     payment: { bg: 'bg-[#E4EDE1]', fg: 'text-[#4f7a4a]' },
+    wedding_seminar_upcoming: { bg: 'bg-[#E5DEF5]', fg: 'text-[#6B4FA0]' },
+    wedding_seminar_pending: { bg: 'bg-[#FBEBD2]', fg: 'text-[#B8792E]' },
+    wedding_seminar_overdue: { bg: 'bg-[#F5D9D9]', fg: 'text-[#B84545]' },
+    wedding_activity_pending: { bg: 'bg-[#FBEBD2]', fg: 'text-[#B8792E]' },
+    wedding_activity_overdue: { bg: 'bg-[#F5D9D9]', fg: 'text-[#B84545]' },
+    wedding_requirements: { bg: 'bg-[#FBEBD2]', fg: 'text-[#B8792E]' },
+    wedding_documents: { bg: 'bg-[#E5DEF5]', fg: 'text-[#6B4FA0]' },
+    wedding_upcoming: { bg: 'bg-[#E4EDE1]', fg: 'text-[#4f7a4a]' },
+};
+
+// priority badge styling, independent of `kind` -- this is what makes an
+// OVERDUE item visually jump out even if its `kind` icon is reused elsewhere.
+const priorityBadge = {
+    urgent: { bg: 'bg-[#F5D9D9]', fg: 'text-[#B84545]', label: 'Overdue' },
+    warning: { bg: 'bg-[#FBEBD2]', fg: 'text-[#B8792E]', label: 'Action needed' },
+    info: null,
 };
 
 function iconStyle(kind) {
     return icons[kind] || { bg: 'bg-[#E4EDE1]', fg: 'text-[#4f7a4a]' };
+}
+
+function badgeFor(priority) {
+    return priorityBadge[priority] || null;
 }
 
 function handleClickOutside(e) {
@@ -95,10 +117,9 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
                 </div>
 
                 <div class="max-h-96 overflow-y-auto">
-                    <button
+                    <div
                         v-for="n in notifications"
                         :key="n.id"
-                        @click="openNotification(n)"
                         class="flex w-full items-start gap-3 border-b border-black/5 px-4 py-3 text-left transition last:border-b-0 hover:bg-[#FAF7F0] dark:border-white/5 dark:hover:bg-white/5"
                         :class="{ 'bg-[#FAF7F0]/50 dark:bg-white/[0.03]': !n.read }"
                     >
@@ -110,27 +131,46 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
                                 <circle cx="12" cy="12" r="8.5" />
                             </svg>
                         </span>
-                        <span class="min-w-0 flex-1">
-                            <span class="flex items-center gap-2">
+                        <button type="button" class="min-w-0 flex-1 text-left" @click="openNotification(n)">
+                            <span class="flex flex-wrap items-center gap-1.5">
                                 <span class="truncate text-sm font-medium text-[#173528] dark:text-slate-100">{{ n.title }}</span>
                                 <span
-                                    v-if="n.category"
+                                    v-if="badgeFor(n.priority)"
                                     class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                                    :class="[iconStyle(n.kind).bg, iconStyle(n.kind).fg]"
+                                    :class="[badgeFor(n.priority).bg, badgeFor(n.priority).fg]"
+                                >
+                                    {{ badgeFor(n.priority).label }}
+                                </span>
+                                <span
+                                    v-if="n.category"
+                                    class="shrink-0 rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#173528]/60 dark:bg-white/10 dark:text-slate-300"
                                 >
                                     {{ n.category }}
                                 </span>
                                 <span v-if="!n.read" class="h-1.5 w-1.5 shrink-0 rounded-full bg-[#B84545]"></span>
                             </span>
                             <span class="mt-0.5 block text-xs text-[#173528]/55 dark:text-slate-400">{{ n.body }}</span>
-                            <span class="mt-1 block text-[11px] text-[#173528]/35 dark:text-slate-500">{{ n.created_at }}</span>
-                        </span>
-                    </button>
+                            <span class="mt-1 flex items-center gap-2">
+                                <span class="text-[11px] text-[#173528]/35 dark:text-slate-500">{{ n.created_at }}</span>
+                                <span v-if="n.url" class="text-[11px] font-semibold uppercase tracking-wide text-[#4f7a4a]">
+                                    {{ n.action_label || 'View' }}
+                                </span>
+                            </span>
+                        </button>
+                    </div>
 
                     <div v-if="notifications.length === 0" class="px-4 py-10 text-center text-sm text-[#173528]/40">
                         You're all caught up.
                     </div>
                 </div>
+
+                <Link
+                    :href="route('notifications.index')"
+                    class="block border-t border-black/5 px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-[#4f7a4a] hover:bg-[#FAF7F0] dark:border-white/10 dark:hover:bg-white/5"
+                    @click="open = false"
+                >
+                    View All Notifications
+                </Link>
             </div>
         </Transition>
     </div>

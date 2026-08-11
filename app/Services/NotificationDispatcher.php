@@ -19,11 +19,22 @@ class NotificationDispatcher
         string $title,
         string $body,
         ?Reservation $reservation = null,
-        ?User $except = null
+        ?User $except = null,
+        string $priority = ReservationActivityNotification::PRIORITY_INFO,
+        ?string $actionLabel = null,
+        ?string $dedupeKey = null,
     ): void {
         User::query()
             ->when($except, fn ($q) => $q->where('id', '!=', $except->id))
             ->get()
-            ->each->notify(new ReservationActivityNotification($kind, $title, $body, $reservation));
+            ->each->notify(new ReservationActivityNotification(
+                $kind,
+                $title,
+                $body,
+                $reservation,
+                $priority,
+                $actionLabel,
+                $dedupeKey,
+            ));
     }
 }

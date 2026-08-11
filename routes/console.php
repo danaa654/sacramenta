@@ -10,6 +10,11 @@ Artisan::command('inspire', function () {
 
 Schedule::command('notifications:check-reservations')->hourly();
 
+// Wedding Reservation / Marriage Preparation reminders (seminars,
+// canonical interview, marriage banns, documents, upcoming weddings) —
+// see CheckMarriagePreparationNotifications for what each check covers.
+Schedule::command('notifications:check-marriage-preparation')->hourly();
+
 // Keeps the rolling window of auto-generated Mass reservations topped up.
 // Idempotent (see GenerateMassSchedule), so running daily is just a cheap
 // way to make sure the window always extends
