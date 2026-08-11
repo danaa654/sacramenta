@@ -10,6 +10,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReservationController;
 use App\Http\Controllers\RotaController;
+use App\Http\Controllers\SeminarController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -69,6 +70,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::patch('reservations/{reservation}/requirements', [ReservationController::class, 'updateRequirements'])
         ->name('reservations.requirements.update');
+
+    // Pre-Cana / Marriage Preparation Seminar scheduling — separate from
+    // the wedding's own Event Date/Event Time (reservations.status.update
+    // / reservations.actions.update). See SeminarController.
+    Route::post('reservations/{reservation}/seminar', [SeminarController::class, 'store'])
+        ->name('reservations.seminar.store');
+    Route::patch('reservations/{reservation}/seminar/{seminar}', [SeminarController::class, 'update'])
+        ->name('reservations.seminar.update');
+    Route::patch('reservations/{reservation}/seminar/{seminar}/complete', [SeminarController::class, 'complete'])
+        ->name('reservations.seminar.complete');
+    Route::delete('reservations/{reservation}/seminar/{seminar}', [SeminarController::class, 'destroy'])
+        ->name('reservations.seminar.destroy');
 
     Route::patch('reservations/{reservation}/rota', [RotaController::class, 'update'])
         ->name('reservations.rota.update');

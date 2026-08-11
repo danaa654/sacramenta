@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\MassSchedule;
 use App\Models\Priest;
 use App\Models\Reservation;
+use App\Models\WeddingSeminar;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -61,8 +62,21 @@ class CalendarController extends Controller
             ->orderBy('start_time')
             ->get(['id', 'label', 'days_of_week', 'start_time', 'end_time', 'language', 'is_livestreamed', 'location_id']);
 
+        // Pre-Cana seminars are their own schedule (see WeddingSeminar),
+        // not a Reservation row, so the month's worth are loaded and
+        // handed to the calendar separately rather than the wedding's
+        // own event_date/event_time. Never a Scheduled/Completed status
+        // check here for filtering — a "Pending" seminar has no date yet
+        // so the whereBetween on seminar_date already excludes it.
+        $seminars = WeddingSeminar::with('reservation:id,contact_name')
+            ->whereBetween('seminar_date', [$start->toDateString(), $end->toDateString()])
+            ->orderBy('seminar_date')
+            ->orderBy('start_time')
+            ->get();
+
         return Inertia::render('Calendar/Index', [
             'reservations' => $reservations,
+            'seminars' => $seminars,
             'priests' => Priest::where('status', 'active')->orderBy('name')->get(['id', 'name']),
             'massSchedules' => $massSchedules,
             'colors' => config('calendar.colors'),

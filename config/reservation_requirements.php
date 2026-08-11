@@ -21,13 +21,22 @@ return [
         //    is what keeps a wedding from being confirmed — see
         //    Reservation::requirementsComplete().
         //
+        //  - "Documents Requirements" (`is_required` => false): the
+        //    bride/groom document checklist (baptismal certificate,
+        //    CENOMAR, civil marriage license — one row per side so each
+        //    side's copy can be tracked/verified independently). Tracked
+        //    with a Pending / Submitted / Verified / Not Required status,
+        //    but — same as Supporting Documents below — never blocks
+        //    confirming the reservation.
+        //
+        //    NOTE: a "Confirmation Certificate" item previously lived
+        //    here. It was deliberately removed (see the
+        //    2026_08_11_000003 migration) and must not be reintroduced —
+        //    it is not part of the parish's wedding document checklist.
+        //
         //  - "Parish-Specific / Supporting Documents" (`is_required` =>
-        //    false): certificates and paperwork that vary by parish and
-        //    couple. These can be tracked (Pending/In Progress/Completed)
-        //    or explicitly marked Not Required, but never block
-        //    confirmation on their own. Confirmation Certificate lives
-        //    here rather than as a mandatory item, since not every parish
-        //    requires it before a wedding can proceed.
+        //    false): anything else that varies by parish (currently just
+        //    the reservation deposit).
         'wedding' => [
             [
                 'key' => 'canonical_interview',
@@ -69,50 +78,57 @@ return [
                 'key' => 'baptismal_certificate_groom',
                 'label' => 'Baptismal Certificate, For Marriage Purposes (Groom)',
                 'is_required' => false,
-                'group_key' => 'supporting',
-                'group_label' => 'Parish-Specific / Supporting Documents',
+                'group_key' => 'documents',
+                'group_label' => 'Documents Requirements',
             ],
             [
                 'key' => 'baptismal_certificate_bride',
                 'label' => 'Baptismal Certificate, For Marriage Purposes (Bride)',
                 'is_required' => false,
-                'group_key' => 'supporting',
-                'group_label' => 'Parish-Specific / Supporting Documents',
-            ],
-            [
-                'key' => 'confirmation_certificate_groom',
-                'label' => 'Confirmation Certificate, For Marriage Purposes (Groom)',
-                'is_required' => false,
-                'group_key' => 'supporting',
-                'group_label' => 'Parish-Specific / Supporting Documents',
-            ],
-            [
-                'key' => 'confirmation_certificate_bride',
-                'label' => 'Confirmation Certificate, For Marriage Purposes (Bride)',
-                'is_required' => false,
-                'group_key' => 'supporting',
-                'group_label' => 'Parish-Specific / Supporting Documents',
+                'group_key' => 'documents',
+                'group_label' => 'Documents Requirements',
             ],
             [
                 'key' => 'cenomar_groom',
                 'label' => 'Cenomar / Certificate of No Marriage (Groom)',
                 'is_required' => false,
-                'group_key' => 'supporting',
-                'group_label' => 'Parish-Specific / Supporting Documents',
+                'group_key' => 'documents',
+                'group_label' => 'Documents Requirements',
             ],
             [
                 'key' => 'cenomar_bride',
                 'label' => 'Cenomar / Certificate of No Marriage (Bride)',
                 'is_required' => false,
-                'group_key' => 'supporting',
-                'group_label' => 'Parish-Specific / Supporting Documents',
+                'group_key' => 'documents',
+                'group_label' => 'Documents Requirements',
             ],
             [
-                'key' => 'civil_marriage_license',
-                'label' => 'Civil Marriage License',
+                'key' => 'civil_marriage_license_groom',
+                'label' => 'Marriage License (Groom)',
                 'is_required' => false,
-                'group_key' => 'supporting',
-                'group_label' => 'Parish-Specific / Supporting Documents',
+                'group_key' => 'documents',
+                'group_label' => 'Documents Requirements',
+            ],
+            [
+                'key' => 'civil_marriage_license_bride',
+                'label' => 'Marriage License (Bride)',
+                'is_required' => false,
+                'group_key' => 'documents',
+                'group_label' => 'Documents Requirements',
+            ],
+            [
+                'key' => 'other_document_bride',
+                'label' => 'Other Required Document(s) — Bride',
+                'is_required' => false,
+                'group_key' => 'documents',
+                'group_label' => 'Documents Requirements',
+            ],
+            [
+                'key' => 'other_document_groom',
+                'label' => 'Other Required Document(s) — Groom',
+                'is_required' => false,
+                'group_key' => 'documents',
+                'group_label' => 'Documents Requirements',
             ],
         ],
 

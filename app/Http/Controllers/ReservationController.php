@@ -48,15 +48,20 @@ class ReservationController extends Controller
         $showPastRecords = $request->boolean('show_past_records');
 
         $reservations = Reservation::with('priest')
+            ->when($request->string('search')->toString(), fn ($q, $search) => $q->searchSubject($search))
             ->when($request->string('type')->toString(), fn ($q, $type) => $q->where('type', $type))
             ->when($request->string('status')->toString(), fn ($q, $status) => $q->where('status', $status))
-            // Auto-generated regular Masses (from the weekly MassSchedule
-            // templates, see GenerateMassSchedule) are staff's standing
-            // schedule, not requests needing review — they have their own
-            // dedicated "unassigned Masses" view. Hidden here by default so
-            // they don't drown out actual staff-entered bookings; opt back
-            // in with ?show_regular_masses=1.
-            ->when(! $showRegularMasses, fn ($q) => $q->whereNull('mass_schedule_id'))
+            // Mass Schedule entries (type = 'mass') are parish-created
+            // Masses, not requests from a person/family/org — they belong
+            // on the dedicated Mass Schedule page, not here. This used to
+            // check `mass_schedule_id` (only set for Masses generated from
+            // the recurring weekly template), which incorrectly let
+            // admin-created special Masses like Simbang Gabi — which have
+            // no mass_schedule_id — leak into this list. Checking `type`
+            // directly covers both regular AND special Masses. Opt back
+            // in with ?show_regular_masses=1 (name kept for the existing
+            // query param / checkbox).
+            ->when(! $showRegularMasses, fn ($q) => $q->where('type', '!=', 'mass'))
             // Completed and archived reservations are done — they already
             // have a dedicated read-only history view (Archives). Leaving
             // them in this list too meant every finished record sat here
@@ -74,7 +79,7 @@ class ReservationController extends Controller
 
         return Inertia::render('Reservations/Index', [
             'reservations' => $reservations,
-            'filters' => $request->only(['type', 'status']),
+            'filters' => $request->only(['type', 'status', 'search']),
             'showRegularMasses' => $showRegularMasses,
             'showPastRecords' => $showPastRecords,
         ]);
@@ -139,7 +144,7 @@ class ReservationController extends Controller
 
     public function show(Request $request, Reservation $reservation): Response
     {
-        $reservation->load('priest', 'location', 'requirements', 'rotaAssignments', 'creator', 'updater');
+        $reservation->load('priest', 'location', 'requirements', 'rotaAssignments', 'creator', 'updater', 'seminar');
 
         return Inertia::render('Reservations/Show', [
             'reservation' => $reservation,
@@ -389,17 +394,35 @@ class ReservationController extends Controller
         $validated = $request->validate([
             'items' => ['required', 'array'],
             'items.*.id' => ['required', 'integer', 'exists:reservation_requirements,id'],
-            'items.*.is_completed' => ['required', 'boolean'],
+            // `status` is the source of truth going forward; `is_completed`
+            // is still accepted (and kept working) for any caller that
+            // hasn't moved to sending status yet — see the model's
+            // saving() hook, which derives is_completed from status
+            // whenever status is present and dirty.
+            'items.*.status' => ['sometimes', 'string', Rule::in(\App\Models\ReservationRequirement::STATUSES)],
+            'items.*.is_completed' => ['sometimes', 'boolean'],
             'items.*.note' => ['nullable', 'string', 'max:500'],
+            'items.*.date_started' => ['nullable', 'date'],
+            'items.*.date_completed' => ['nullable', 'date'],
+            'items.*.meta' => ['nullable', 'array'],
         ]);
 
         foreach ($validated['items'] as $item) {
-            $reservation->requirements()
-                ->where('id', $item['id'])
-                ->update([
-                    'is_completed' => $item['is_completed'],
-                    'note' => $item['note'] ?? null,
-                ]);
+            $update = ['note' => $item['note'] ?? null];
+
+            foreach (['date_started', 'date_completed', 'meta'] as $optionalField) {
+                if (array_key_exists($optionalField, $item)) {
+                    $update[$optionalField] = $item[$optionalField];
+                }
+            }
+
+            if (array_key_exists('status', $item)) {
+                $update['status'] = $item['status'];
+            } elseif (array_key_exists('is_completed', $item)) {
+                $update['is_completed'] = $item['is_completed'];
+            }
+
+            $reservation->requirements()->where('id', $item['id'])->update($update);
         }
 
         return back()->with('success', 'Requirements updated.');
@@ -810,13 +833,10 @@ class ReservationController extends Controller
 
             foreach ($children as $index => $child) {
                 foreach ($items as $item) {
-                    $reservation->requirements()->create([
+                    $reservation->requirements()->create($this->requirementAttributes($item, [
                         'child_index' => $index,
                         'child_name' => $child['child_name'] ?? "Child ".($index + 1),
-                        'key' => $item['key'],
-                        'label' => $item['label'],
-                        'is_completed' => false,
-                    ]);
+                    ]));
                 }
             }
 
@@ -824,12 +844,32 @@ class ReservationController extends Controller
         }
 
         foreach ($items as $item) {
-            $reservation->requirements()->create([
-                'key' => $item['key'],
-                'label' => $item['label'],
-                'is_completed' => false,
-            ]);
+            $reservation->requirements()->create($this->requirementAttributes($item));
         }
+    }
+
+    /**
+     * Map one config/reservation_requirements.php checklist entry into the
+     * attributes for a new ReservationRequirement row. Pulls every field
+     * the config can define (status/is_required/group_key/group_label/
+     * description) rather than just key/label — omitting these left new
+     * wedding reservations with `group_key = null`, which is why the
+     * Documents/Marriage Preparation sections and their "X of Y" counters
+     * showed nothing for freshly-created weddings (the panel filters rows
+     * by `group_key`).
+     */
+    protected function requirementAttributes(array $item, array $overrides = []): array
+    {
+        return array_merge([
+            'key' => $item['key'],
+            'label' => $item['label'],
+            'description' => $item['description'] ?? null,
+            'is_completed' => false,
+            'status' => 'pending',
+            'is_required' => $item['is_required'] ?? true,
+            'group_key' => $item['group_key'] ?? null,
+            'group_label' => $item['group_label'] ?? null,
+        ], $overrides);
     }
 
     /**

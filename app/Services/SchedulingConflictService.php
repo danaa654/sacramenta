@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Reservation;
+use App\Models\WeddingSeminar;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -94,6 +95,121 @@ class SchedulingConflictService
             $excludeId,
             $details
         );
+    }
+
+    /**
+     * Find a scheduled/completed Pre-Cana seminar (for a different
+     * wedding) already booked at the same venue during an overlapping
+     * window. Only real venues collide — "Other" seminars are compared
+     * by their free-text `venue_other` value.
+     */
+    public function findSeminarVenueConflict(
+        string $venue,
+        ?string $venueOther,
+        string $date,
+        string $startTime,
+        string $endTime,
+        ?int $excludeSeminarId = null
+    ): ?WeddingSeminar {
+        $start = Carbon::parse("{$date} {$startTime}");
+        $end = Carbon::parse("{$date} {$endTime}");
+
+        return WeddingSeminar::query()
+            ->with('reservation:id,contact_name')
+            ->whereIn('status', [WeddingSeminar::STATUS_SCHEDULED, WeddingSeminar::STATUS_COMPLETED])
+            ->whereDate('seminar_date', $date)
+            ->whereNotNull('start_time')
+            ->whereNotNull('end_time')
+            ->where('venue', $venue)
+            ->when($venue === 'Other', fn ($q) => $q->where('venue_other', $venueOther))
+            ->when($excludeSeminarId, fn ($q) => $q->where('id', '!=', $excludeSeminarId))
+            ->get()
+            ->first(function (WeddingSeminar $existing) use ($start, $end, $date) {
+                $existingStart = Carbon::parse("{$date} {$existing->start_time}");
+                $existingEnd = Carbon::parse("{$date} {$existing->end_time}");
+
+                return $start->lt($existingEnd) && $existingStart->lt($end);
+            });
+    }
+
+    /**
+     * Find a conflict for a given facilitator during the seminar window —
+     * either another seminar (any facilitator with the same name) or, for
+     * a facilitator who is a priest already assigned in the system, any
+     * confirmed Reservation that priest is booked for at an overlapping
+     * time (weddings, other seminars indirectly via that seminar's own
+     * check, Masses, etc). Returns the first conflicting item found, as
+     * either a WeddingSeminar or a Reservation.
+     */
+    public function findSeminarFacilitatorConflict(
+        array $facilitators,
+        string $date,
+        string $startTime,
+        string $endTime,
+        ?int $excludeSeminarId = null
+    ): WeddingSeminar|Reservation|null {
+        $start = Carbon::parse("{$date} {$startTime}");
+        $end = Carbon::parse("{$date} {$endTime}");
+
+        $names = collect($facilitators)->pluck('name')->filter()->values();
+        $priestIds = collect($facilitators)
+            ->where('type', 'priest')
+            ->pluck('priest_id')
+            ->filter()
+            ->values();
+
+        if ($names->isNotEmpty()) {
+            $seminarConflict = WeddingSeminar::query()
+                ->with('reservation:id,contact_name')
+                ->whereIn('status', [WeddingSeminar::STATUS_SCHEDULED, WeddingSeminar::STATUS_COMPLETED])
+                ->whereDate('seminar_date', $date)
+                ->whereNotNull('start_time')
+                ->whereNotNull('end_time')
+                ->when($excludeSeminarId, fn ($q) => $q->where('id', '!=', $excludeSeminarId))
+                ->get()
+                ->first(function (WeddingSeminar $existing) use ($start, $end, $date, $names) {
+                    $existingStart = Carbon::parse("{$date} {$existing->start_time}");
+                    $existingEnd = Carbon::parse("{$date} {$existing->end_time}");
+                    $overlaps = $start->lt($existingEnd) && $existingStart->lt($end);
+
+                    if (! $overlaps) {
+                        return false;
+                    }
+
+                    $existingNames = collect($existing->facilitators ?? [])->pluck('name')->filter();
+
+                    return $names->intersect($existingNames)->isNotEmpty();
+                });
+
+            if ($seminarConflict) {
+                return $seminarConflict;
+            }
+        }
+
+        if ($priestIds->isNotEmpty()) {
+            foreach ($priestIds as $priestId) {
+                $reservationConflict = Reservation::query()
+                    ->where('priest_id', $priestId)
+                    ->where('status', 'confirmed')
+                    ->whereDate('event_date', $date)
+                    ->whereNotNull('event_time')
+                    ->get()
+                    ->first(function (Reservation $existing) use ($start, $end) {
+                        $existingStart = Carbon::parse(
+                            $existing->event_date->format('Y-m-d').' '.$existing->event_time
+                        );
+                        $existingEnd = $existingStart->copy()->addMinutes($this->durationFor($existing->type, $existing->details ?? []));
+
+                        return $start->lt($existingEnd) && $existingStart->lt($end);
+                    });
+
+                if ($reservationConflict) {
+                    return $reservationConflict;
+                }
+            }
+        }
+
+        return null;
     }
 
     protected function findConflict(

@@ -262,8 +262,11 @@ const sparkline = computed(() => {
                             </span>
                         </div>
 
-                        <!-- Pending -->
-                        <div class="flex items-center justify-between rounded-2xl border border-white/80 bg-white/90 p-4 shadow-md backdrop-blur-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-white/10 dark:bg-slate-800/80">
+                        <!-- Pending (clickable — jumps to Reservations filtered to pending) -->
+                        <Link
+                            :href="route('reservations.index', { status: 'draft' })"
+                            class="flex items-center justify-between rounded-2xl border border-white/80 bg-white/90 p-4 shadow-md backdrop-blur-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:border-[#B8792E]/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#B8792E]/50 dark:border-white/10 dark:bg-slate-800/80"
+                        >
                             <div>
                                 <p class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/50 dark:text-slate-400">Pending</p>
                                 <p class="mt-1 font-serif text-3xl font-medium text-[#173528]/80 dark:text-slate-300">{{ stats.pending }}</p>
@@ -274,7 +277,7 @@ const sparkline = computed(() => {
                                     <path d="M12 7.5V12l3 2" stroke-linecap="round" stroke-linejoin="round" />
                                 </svg>
                             </span>
-                        </div>
+                        </Link>
 
                         <!-- Confirmed -->
                         <div class="flex items-center justify-between rounded-2xl border border-[#e0cfa8] bg-[#EFE6D8]/90 p-4 shadow-md backdrop-blur-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-[#8a6a34]/40 dark:bg-[#3a2f1a]/70">

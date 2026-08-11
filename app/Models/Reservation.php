@@ -489,6 +489,16 @@ class Reservation extends Model
         return $this->hasMany(ReservationRequirement::class);
     }
 
+    /**
+     * The Pre-Cana / Marriage Preparation Seminar schedule (wedding
+     * reservations only). Separate from `event_date`/`event_time`, which
+     * are the wedding ceremony's own schedule — see WeddingSeminar.
+     */
+    public function seminar(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(WeddingSeminar::class);
+    }
+
     public function rotaAssignments(): HasMany
     {
         return $this->hasMany(RotaAssignment::class);

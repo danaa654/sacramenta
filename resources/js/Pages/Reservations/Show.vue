@@ -1,5 +1,6 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import WeddingRequirementsPanel from '@/Components/WeddingRequirementsPanel.vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
@@ -160,9 +161,22 @@ const totalRequirements = computed(() => checklistForm.items.length);
 const completedRequirements = computed(
     () => checklistForm.items.filter((i) => i.is_completed).length
 );
-const allRequirementsComplete = computed(
-    () => totalRequirements.value === 0 || completedRequirements.value === totalRequirements.value
-);
+// Mirrors Reservation::requirementsComplete() on the backend: only items
+// marked `is_required` (Pre-Marriage Requirements for a wedding) can hold
+// up confirming — optional/supporting items (documents, deposit) never
+// do, even if left Pending. Falls back to the old all-items check for any
+// requirement row that predates `is_required` being set.
+const allRequirementsComplete = computed(() => {
+    if (totalRequirements.value === 0) return true;
+
+    return props.reservation.requirements.every((raw) => {
+        if (raw.is_required === false) return true;
+        if (raw.is_required === undefined) {
+            return checklistForm.items.find((i) => i.id === raw.id)?.is_completed;
+        }
+        return raw.status === 'completed' || raw.status === 'not_required';
+    });
+});
 
 function requirementLabel(id) {
     return props.reservation.requirements.find((r) => r.id === id)?.label ?? '';
@@ -588,10 +602,19 @@ function submitCorrection() {
                     </div>
                 </div>
 
-                <!-- Requirements checklist (shared, non-grouped reservations only —
-                     group/community baptisms show their checklist per-child above) -->
+                <!-- Wedding Requirements: dedicated panel (Documents Requirements +
+                     Marriage Preparation, incl. Pre-Cana seminar scheduling) -->
+                <WeddingRequirementsPanel
+                    v-if="reservation.type === 'wedding' && reservation.requirements && reservation.requirements.length"
+                    :reservation="reservation"
+                    :priests="priests"
+                />
+
+                <!-- Requirements checklist (shared, non-grouped, non-wedding reservations
+                     only — group/community baptisms show their checklist per-child above,
+                     weddings use the dedicated panel above) -->
                 <div
-                    v-if="!isGroupBaptism && reservation.requirements && reservation.requirements.length"
+                    v-if="!isGroupBaptism && reservation.type !== 'wedding' && reservation.requirements && reservation.requirements.length"
                     class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800"
                 >
                     <div class="flex items-center justify-between">

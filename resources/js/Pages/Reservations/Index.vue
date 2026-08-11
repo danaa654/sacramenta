@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { reactive } from 'vue';
+import { reactive, ref, watch } from 'vue';
 
 const props = defineProps({
     reservations: {
@@ -25,6 +25,37 @@ const props = defineProps({
         default: false,
     },
 });
+
+// Search box: matches reservation subject (couple, child, deceased, etc.
+// — same fields as Reservation::getDisplayNameAttribute()), plus Contact
+// Person and O.R. number, via the searchSubject() scope also used on the
+// Archives page. Debounced ~350ms so it updates as-you-type without
+// spamming a request per keystroke; Enter applies immediately.
+const search = ref(props.filters.search ?? '');
+let searchDebounce = null;
+
+watch(search, () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => applySearch(), 350);
+});
+
+function applySearch() {
+    router.get(
+        route('reservations.index'),
+        {
+            ...props.filters,
+            search: search.value || undefined,
+            show_regular_masses: props.showRegularMasses ? 1 : undefined,
+            show_past_records: props.showPastRecords ? 1 : undefined,
+        },
+        { preserveState: true, preserveScroll: true, replace: true }
+    );
+}
+
+function clearSearch() {
+    search.value = '';
+    applySearch();
+}
 
 function toggleRegularMasses(event) {
     router.get(
@@ -117,6 +148,22 @@ function formatDate(date) {
     });
 }
 
+/**
+ * The person/couple/family the sacrament is actually for (e.g. the
+ * child being baptized), as distinct from `contact_name` — whoever is
+ * arranging the booking, often a parent or coordinator rather than the
+ * honoree. Backend-computed on Reservation::getDisplayNameAttribute()
+ * (see app/Models/Reservation.php) — same field the Archive and
+ * certificates use — so this stays in sync with one source of truth
+ * instead of duplicating the per-type field lookups here. Falls back to
+ * contact_name itself when there's no separate subject, so we only show
+ * the second line when it actually adds information.
+ */
+function subjectName(r) {
+    if (!r.display_name || r.display_name === r.contact_name) return null;
+    return r.display_name;
+}
+
 function destroy(reservation) {
     if (confirm(`Delete the reservation for ${reservation.contact_name}? This cannot be undone.`)) {
         router.delete(route('reservations.destroy', reservation.id));
@@ -152,7 +199,30 @@ function openReservation(reservation) {
         <div class="py-10">
             <div class="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
 
-                <div class="flex items-center justify-end">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="relative w-full max-w-sm">
+                        <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#3f6470]/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <circle cx="11" cy="11" r="7" />
+                            <path d="M21 21l-4.3-4.3" stroke-linecap="round" />
+                        </svg>
+                        <input
+                            v-model="search"
+                            type="text"
+                            placeholder="Search by name, couple, child, or O.R. number…"
+                            class="w-full rounded-full border-[#3f6470]/20 bg-white py-2 pl-9 pr-9 text-sm text-[#173528] shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
+                            @keyup.enter="applySearch"
+                        />
+                        <button
+                            v-if="search"
+                            type="button"
+                            @click="clearSearch"
+                            class="absolute right-3 top-1/2 -translate-y-1/2 text-[#3f6470]/40 hover:text-[#3f6470]"
+                            aria-label="Clear search"
+                        >
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" /></svg>
+                        </button>
+                    </div>
+
                     <Link
                         :href="route('reservations.create')"
                         class="rounded-full bg-[#8CA089] px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-sm shadow-[#8CA089]/30 transition hover:-translate-y-0.5 hover:bg-[#7c9078] hover:shadow-md"
@@ -178,7 +248,7 @@ function openReservation(reservation) {
                             @change="toggleRegularMasses"
                             class="rounded border-[#3f6470]/30 text-[#8CA089] focus:ring-[#8CA089]"
                         />
-                        Show regular Mass schedule entries
+                        Show Mass Schedule entries
                     </label>
                 </div>
 
@@ -204,6 +274,9 @@ function openReservation(reservation) {
                             >
                                 <td class="whitespace-nowrap px-6 py-4">
                                     <p class="text-sm font-medium text-[#2f4a4a] dark:text-slate-100">{{ r.contact_name }}</p>
+                                    <p v-if="subjectName(r)" class="text-xs font-medium text-[#4f7a4a] dark:text-[#8CA089]">
+                                        For: {{ subjectName(r) }}
+                                    </p>
                                     <p class="text-xs text-[#3f6470]/50 dark:text-slate-400">{{ r.contact_mobile }}</p>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-[#2f4a4a] dark:text-slate-200">
@@ -280,7 +353,8 @@ function openReservation(reservation) {
 
                             <tr v-if="!reservations.data.length">
                                 <td colspan="7" class="px-6 py-12 text-center text-sm text-[#3f6470]/40 dark:text-slate-500">
-                                    No reservations yet. Create the first one to get started.
+                                    <span v-if="search">No reservations match "{{ search }}".</span>
+                                    <span v-else>No reservations yet. Create the first one to get started.</span>
                                 </td>
                             </tr>
                         </tbody>

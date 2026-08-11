@@ -12,6 +12,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    seminars: {
+        type: Array,
+        default: () => [],
+    },
     priests: {
         type: Array,
         default: () => [],
@@ -55,6 +59,7 @@ const typeLabels = {
     spiritual_direction: 'Spiritual Direction / Confession',
     special_intention: 'Special Intention / Petition',
     others: 'Others',
+    pre_cana_seminar: 'Pre-Cana Seminar',
 };
 
 // Pending statuses (draft) render hollow/dashed; confirmed renders solid;
@@ -180,7 +185,35 @@ const calendarEvents = computed(() => {
         };
     });
 
-    return events;
+    // Pre-Cana seminars are a separate schedule from the wedding's own
+    // Event Date/Time (see WeddingSeminar) — they never replace or get
+    // merged with the "Wedding" event above, they're their own chip.
+    // Only Scheduled/Completed seminars have a date at all (Pending has
+    // none yet), so nothing further to filter here.
+    const seminarEvents = props.seminars.map((s) => {
+        const color = props.colors.pre_cana_seminar ?? '#a3739c';
+        const couple = s.reservation?.contact_name;
+
+        return {
+            id: `seminar-${s.id}`,
+            title: `Pre-Cana Seminar${couple ? ' — ' + couple : ''}`,
+            start: s.start_time ? `${s.seminar_date.slice(0, 10)}T${s.start_time}` : s.seminar_date.slice(0, 10),
+            end: s.end_time ? `${s.seminar_date.slice(0, 10)}T${s.end_time}` : undefined,
+            allDay: !s.start_time,
+            backgroundColor: color,
+            borderColor: color,
+            textColor: '#ffffff',
+            extendedProps: {
+                status: s.status,
+                type: 'pre_cana_seminar',
+                reservationId: s.reservation_id,
+                locationName: s.venue === 'Other' ? s.venue_other : s.venue,
+                time: formatTime(s.start_time),
+            },
+        };
+    });
+
+    return [...events, ...seminarEvents];
 });
 
 function eventDidMount(info) {

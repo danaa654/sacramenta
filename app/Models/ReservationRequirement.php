@@ -32,12 +32,23 @@ class ReservationRequirement extends Model
      */
     public const STATUS_PENDING = 'pending';
     public const STATUS_IN_PROGRESS = 'in_progress';
+    public const STATUS_SUBMITTED = 'submitted';
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_NOT_REQUIRED = 'not_required';
 
+    /**
+     * `submitted` only applies to `group_key = 'documents'` items (the
+     * Pending -> Submitted -> Verified flow for a document a couple
+     * hands in); `in_progress` only applies to Pre-Marriage Requirements
+     * items like Marriage Banns. Both are accepted here rather than
+     * having two separate columns — the UI only offers the options that
+     * make sense for the item's group (see WeddingRequirementsPanel.vue),
+     * this list is just the full set the column accepts.
+     */
     public const STATUSES = [
         self::STATUS_PENDING,
         self::STATUS_IN_PROGRESS,
+        self::STATUS_SUBMITTED,
         self::STATUS_COMPLETED,
         self::STATUS_NOT_REQUIRED,
     ];
@@ -57,6 +68,7 @@ class ReservationRequirement extends Model
         'note',
         'date_started',
         'date_completed',
+        'meta',
     ];
 
     protected $casts = [
@@ -65,6 +77,7 @@ class ReservationRequirement extends Model
         'child_index' => 'integer',
         'date_started' => 'date',
         'date_completed' => 'date',
+        'meta' => 'array',
     ];
 
     public function reservation(): BelongsTo
