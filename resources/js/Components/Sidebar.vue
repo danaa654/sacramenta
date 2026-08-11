@@ -20,7 +20,7 @@ const navItems = [
     { label: 'Dashboard', icon: 'grid', route: 'dashboard', enabled: true },
     { label: 'Reservations', icon: 'calendar', route: 'reservations.index', enabled: true },
     { label: 'Calendar', icon: 'calendar-view', route: 'calendar.index', enabled: true },
-    { label: 'Unassigned Masses', icon: 'calendar-view', route: 'masses.unassigned', enabled: true },
+    { label: 'Mass Schedule', icon: 'calendar-view', route: 'masses.unassigned', enabled: true },
     { label: 'Financials', icon: 'coin', route: 'financials.index', enabled: true },
     { label: 'Archives', icon: 'archive', route: 'archives.index', enabled: true },
 ];

@@ -1,7 +1,9 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, router } from '@inertiajs/vue3';
-import { reactive } from 'vue';
+import { Head, router, useForm, usePage } from '@inertiajs/vue3';
+import { computed, reactive, ref } from 'vue';
+
+const page = usePage();
 
 const props = defineProps({
     masses: {
@@ -43,6 +45,10 @@ function cancelMass(reservationId) {
     router.patch(route('masses.cancel', reservationId), {}, { preserveScroll: true });
 }
 
+function restoreMass(reservationId) {
+    router.patch(route('masses.restore', reservationId), {}, { preserveScroll: true });
+}
+
 function changeWindow(weeks) {
     router.get(route('masses.unassigned'), { weeks }, { preserveScroll: true });
 }
@@ -63,27 +69,121 @@ function formatTime(time) {
     return `${hour12}:${m} ${suffix}`;
 }
 
-const dateKeys = Object.keys(props.masses).sort();
-const totalCount = Object.values(props.masses).flat().length;
+const search = ref('');
+const searchingServer = ref(false); // true once we've fetched the wide, unbounded set
+let searchDebounce = null;
+
+function onSearchInput() {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+        const term = search.value.trim();
+
+        if (term && !searchingServer.value) {
+            // First time the box goes non-empty: fetch every upcoming
+            // Mass (not just the current 1/2/4-week window) so matches
+            // further out (e.g. a December Simbang Gabi) are actually
+            // in the data being filtered client-side below.
+            searchingServer.value = true;
+            router.get(
+                route('masses.unassigned'),
+                { weeks: props.weeks, searching: 1 },
+                { preserveScroll: true, preserveState: true, replace: true }
+            );
+        } else if (!term && searchingServer.value) {
+            // Cleared: go back to the normal windowed view.
+            searchingServer.value = false;
+            router.get(route('masses.unassigned'), { weeks: props.weeks }, { preserveScroll: true, replace: true });
+        }
+    }, 300);
+}
+
+const filteredMasses = computed(() => {
+    const term = search.value.trim().toLowerCase();
+    if (!term) return props.masses;
+
+    const result = {};
+    for (const [dateKey, list] of Object.entries(props.masses)) {
+        // Matching the date heading (e.g. "august 11", "tuesday") keeps
+        // the whole day's Masses, same as searching by name/priest keeps
+        // just the matching rows.
+        if (formatDateHeading(dateKey).toLowerCase().includes(term) || dateKey.includes(term)) {
+            result[dateKey] = list;
+            continue;
+        }
+
+        const matches = list.filter((mass) => {
+            const name = (mass.display_name ?? '').toLowerCase();
+            const priest = (mass.priest?.name ?? '').toLowerCase();
+            return name.includes(term) || priest.includes(term);
+        });
+        if (matches.length) result[dateKey] = matches;
+    }
+    return result;
+});
+
+const dateKeys = computed(() => Object.keys(filteredMasses.value).sort());
+const totalCount = computed(() => Object.values(filteredMasses.value).flat().length);
+const unassignedCount = computed(() =>
+    Object.values(filteredMasses.value)
+        .flat()
+        .filter((m) => !m.priest_id && m.status === 'confirmed').length
+);
+
+// --- Add Special Mass -------------------------------------------------
+
+const showAddForm = ref(false);
+
+const form = useForm({
+    title: '',
+    event_date: '',
+    repeat_until: '',
+    event_time: '',
+    duration_minutes: 60,
+    priest_id: '',
+    notes: '',
+});
+
+const presetNames = [
+    'Simbang Gabi',
+    'Christmas Eve Mass',
+    'Christmas Day Mass',
+    'Easter Vigil',
+    'Holy Week Mass',
+    'Fiesta Mass',
+    'Novena Mass',
+    'Funeral Mass',
+    'Special Thanksgiving Mass',
+];
+
+function submitSpecialMass() {
+    form.post(route('masses.store'), {
+        preserveScroll: true,
+        onSuccess: () => {
+            form.reset();
+            showAddForm.value = false;
+        },
+    });
+}
 </script>
 
 <template>
-    <Head title="Unassigned Masses" />
+    <Head title="Mass Schedule" />
 
-    <AuthenticatedLayout title="Unassigned Masses">
+    <AuthenticatedLayout title="Mass Schedule">
         <div class="py-10">
             <div class="mx-auto max-w-5xl space-y-6 px-4 sm:px-6 lg:px-8">
 
                 <div class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/80 bg-white/90 p-5 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
                     <div>
                         <p class="text-sm text-[#3f6470]/80 dark:text-slate-300">
-                            {{ totalCount }} regular Mass{{ totalCount === 1 ? '' : 'es' }} in the next {{ weeks }} week{{ weeks === 1 ? '' : 's' }} still need a celebrant assigned.
+                            {{ totalCount }} Mass{{ totalCount === 1 ? '' : 'es' }} in the next {{ weeks }} week{{ weeks === 1 ? '' : 's' }}
+                            <span v-if="unassignedCount"> — {{ unassignedCount }} still need{{ unassignedCount === 1 ? 's' : '' }} a celebrant.</span>
                         </p>
                         <p class="mt-1 text-xs text-[#3f6470]/50 dark:text-slate-400">
-                            Auto-generated from the parish's standing weekly schedule — assign a priest below, or open the reservation to edit/cancel a single occurrence.
+                            Regular Masses are auto-generated from the parish's standing weekly schedule. Use "Add Mass Schedule" for special, one-time, or recurring Masses like Simbang Gabi.
                         </p>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
                         <button
                             v-for="w in [1, 2, 4]"
                             :key="w"
@@ -96,11 +196,146 @@ const totalCount = Object.values(props.masses).flat().length;
                         >
                             {{ w }} week{{ w === 1 ? '' : 's' }}
                         </button>
+                        <button
+                            type="button"
+                            class="rounded-full bg-[#173528] px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0f2818]"
+                            @click="showAddForm = !showAddForm"
+                        >
+                            + Add Mass Schedule
+                        </button>
                     </div>
                 </div>
 
+                <div class="relative">
+                    <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[#3f6470]/40">
+                        🔍
+                    </span>
+                    <input
+                        v-model="search"
+                        type="text"
+                        placeholder="Search by Mass name, priest, or date…"
+                        class="w-full rounded-full border border-[#3f6470]/20 bg-white/90 py-2.5 pl-9 pr-4 text-sm shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-800/80 dark:text-slate-100"
+                        @input="onSearchInput"
+                    />
+                </div>
+                <p v-if="searchingServer" class="-mt-4 px-1 text-xs text-[#3f6470]/50 dark:text-slate-400">
+                    Searching all upcoming Masses, not just the {{ weeks }}-week window.
+                </p>
+                <!-- Add Special Mass form -->
+                <div v-if="showAddForm" class="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
+                    <h3 class="font-serif text-lg text-[#173528] dark:text-white">Add Mass Schedule</h3>
+                    <p class="mt-1 text-xs text-[#3f6470]/60 dark:text-slate-400">
+                        For a special or one-time Mass. Set "Repeat until" to create a daily series (e.g. Simbang Gabi Dec 16–24) — you can assign a different priest to each night afterward.
+                    </p>
+
+                    <form class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2" @submit.prevent="submitSpecialMass">
+                        <div class="sm:col-span-2">
+                            <label class="text-xs font-medium text-[#3f6470] dark:text-slate-300">Mass / Event Name</label>
+                            <input
+                                v-model="form.title"
+                                type="text"
+                                list="mass-name-presets"
+                                placeholder="e.g. Simbang Gabi"
+                                class="mt-1 w-full rounded-lg border-[#3f6470]/20 text-sm shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
+                            />
+                            <datalist id="mass-name-presets">
+                                <option v-for="name in presetNames" :key="name" :value="name" />
+                            </datalist>
+                            <p v-if="form.errors.title" class="mt-1 text-xs text-[#B84545]">{{ form.errors.title }}</p>
+                        </div>
+
+                        <div>
+                            <label class="text-xs font-medium text-[#3f6470] dark:text-slate-300">Date</label>
+                            <input
+                                v-model="form.event_date"
+                                type="date"
+                                class="mt-1 w-full rounded-lg border-[#3f6470]/20 text-sm shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
+                            />
+                            <p v-if="form.errors.event_date" class="mt-1 text-xs text-[#B84545]">{{ form.errors.event_date }}</p>
+                        </div>
+
+                        <div>
+                            <label class="text-xs font-medium text-[#3f6470] dark:text-slate-300">Repeat daily until (optional)</label>
+                            <input
+                                v-model="form.repeat_until"
+                                type="date"
+                                class="mt-1 w-full rounded-lg border-[#3f6470]/20 text-sm shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
+                            />
+                            <p v-if="form.errors.repeat_until" class="mt-1 text-xs text-[#B84545]">{{ form.errors.repeat_until }}</p>
+                        </div>
+
+                        <div>
+                            <label class="text-xs font-medium text-[#3f6470] dark:text-slate-300">Time</label>
+                            <input
+                                v-model="form.event_time"
+                                type="time"
+                                class="mt-1 w-full rounded-lg border-[#3f6470]/20 text-sm shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
+                            />
+                            <p v-if="form.errors.event_time" class="mt-1 text-xs text-[#B84545]">{{ form.errors.event_time }}</p>
+                        </div>
+
+                        <div>
+                            <label class="text-xs font-medium text-[#3f6470] dark:text-slate-300">Duration (minutes)</label>
+                            <input
+                                v-model.number="form.duration_minutes"
+                                type="number"
+                                min="5"
+                                max="480"
+                                class="mt-1 w-full rounded-lg border-[#3f6470]/20 text-sm shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
+                            />
+                            <p v-if="form.errors.duration_minutes" class="mt-1 text-xs text-[#B84545]">{{ form.errors.duration_minutes }}</p>
+                        </div>
+
+                        <div class="sm:col-span-2">
+                            <label class="text-xs font-medium text-[#3f6470] dark:text-slate-300">Assigned Priest (optional)</label>
+                            <select
+                                v-model="form.priest_id"
+                                class="mt-1 w-full rounded-lg border-[#3f6470]/20 text-sm shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
+                            >
+                                <option value="">— Unassigned —</option>
+                                <option v-for="priest in priests" :key="priest.id" :value="priest.id">{{ priest.name }}</option>
+                            </select>
+                            <p v-if="form.errors.priest_id" class="mt-1 text-xs text-[#B84545]">{{ form.errors.priest_id }}</p>
+                        </div>
+
+                        <div class="sm:col-span-2">
+                            <label class="text-xs font-medium text-[#3f6470] dark:text-slate-300">Notes (optional)</label>
+                            <textarea
+                                v-model="form.notes"
+                                rows="2"
+                                class="mt-1 w-full rounded-lg border-[#3f6470]/20 text-sm shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
+                            ></textarea>
+                        </div>
+
+                        <div class="flex items-center gap-2 sm:col-span-2">
+                            <button
+                                type="submit"
+                                :disabled="form.processing"
+                                class="rounded-lg bg-[#173528] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f2818] disabled:opacity-50"
+                            >
+                                Save Mass Schedule
+                            </button>
+                            <button
+                                type="button"
+                                class="rounded-lg border border-[#3f6470]/20 px-4 py-2 text-sm font-medium text-[#3f6470] dark:text-slate-200"
+                                @click="showAddForm = false"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div
+                    v-if="page.props.errors?.priest_id"
+                    class="rounded-2xl border border-[#B84545]/30 bg-[#F3D9D9]/60 p-4 text-sm font-medium text-[#8a2f2f] shadow-md"
+                >
+                    ⚠ {{ page.props.errors.priest_id }}
+                </div>
+
                 <div v-if="dateKeys.length === 0" class="rounded-2xl border border-white/80 bg-white/90 p-8 text-center text-sm text-[#3f6470]/70 shadow-md dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-300">
-                    Every Mass in this window already has a priest assigned. 🎉
+                    <template v-if="search.trim()">No Masses match "{{ search }}".</template>
+                    <template v-else>No Masses scheduled in this window.</template>
                 </div>
 
                 <div v-for="dateKey in dateKeys" :key="dateKey" class="rounded-2xl border border-white/80 bg-white/90 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
@@ -112,13 +347,30 @@ const totalCount = Object.values(props.masses).flat().length;
 
                     <ul class="divide-y divide-black/5 dark:divide-white/10">
                         <li
-                            v-for="mass in masses[dateKey]"
+                            v-for="mass in filteredMasses[dateKey]"
                             :key="mass.id"
                             class="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
+                            :class="{ 'opacity-50': mass.status === 'cancelled' }"
                         >
                             <div class="min-w-0">
                                 <p class="text-sm font-medium text-[#173528] dark:text-white">
                                     {{ formatTime(mass.event_time) }}
+                                    <span class="ml-1 font-normal">{{ mass.display_name }}</span>
+                                    <span
+                                        v-if="mass.details?.is_special"
+                                        class="ml-1 rounded-full bg-[#EFE3C9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#8a6d1f]"
+                                    >
+                                        Special
+                                    </span>
+                                    <span v-else class="ml-1 rounded-full bg-[#E4EDE1] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#4f7a4a]">
+                                        Regular
+                                    </span>
+                                    <span
+                                        v-if="mass.status === 'cancelled'"
+                                        class="ml-1 rounded-full bg-[#F3D9D9] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#B84545]"
+                                    >
+                                        Cancelled
+                                    </span>
                                     <span v-if="mass.details?.language" class="ml-1 font-normal text-[#3f6470]/60 dark:text-slate-400">
                                         · {{ mass.details.language }}
                                     </span>
@@ -128,10 +380,11 @@ const totalCount = Object.values(props.masses).flat().length;
                                 </p>
                                 <p class="text-xs text-[#3f6470]/60 dark:text-slate-400">
                                     {{ mass.location?.name ?? 'No venue set' }}
+                                    <span v-if="mass.priest">· {{ mass.priest.name }}</span>
                                 </p>
                             </div>
 
-                            <div class="flex items-center gap-2">
+                            <div v-if="mass.status !== 'cancelled'" class="flex items-center gap-2">
                                 <select
                                     v-model="assignments[mass.id]"
                                     class="rounded-lg border-[#3f6470]/20 bg-white text-sm text-[#173528] shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
@@ -154,6 +407,15 @@ const totalCount = Object.values(props.masses).flat().length;
                                     @click="cancelMass(mass.id)"
                                 >
                                     Cancel
+                                </button>
+                            </div>
+                            <div v-else>
+                                <button
+                                    type="button"
+                                    class="rounded-lg border border-[#3f6470]/20 px-3 py-2 text-xs font-semibold text-[#3f6470] transition dark:text-slate-200"
+                                    @click="restoreMass(mass.id)"
+                                >
+                                    Restore
                                 </button>
                             </div>
                         </li>

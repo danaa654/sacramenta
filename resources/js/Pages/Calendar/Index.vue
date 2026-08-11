@@ -604,7 +604,7 @@ const calendarOptions = computed(() => ({
                         :href="route('masses.unassigned')"
                         class="text-xs font-semibold uppercase tracking-wide text-[#8CA089] hover:text-[#7c9078]"
                     >
-                        Manage Unassigned Masses →
+                        Manage Mass Schedule →
                     </Link>
                 </div>
             </div>

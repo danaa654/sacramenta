@@ -13,6 +13,8 @@ class Reservation extends Model
 
     protected $fillable = [
         'type',
+        'title',
+        'series_id',
         'contact_name',
         'contact_mobile',
         'contact_email',
@@ -223,6 +225,10 @@ class Reservation extends Model
 
     public function getDisplayNameAttribute(): string
     {
+        if ($this->title) {
+            return $this->title;
+        }
+
         $d = $this->details ?? [];
         $fallback = $this->contact_name ?: 'N/A';
 

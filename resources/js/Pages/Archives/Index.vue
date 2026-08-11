@@ -161,7 +161,7 @@ function showHref(id) {
                     reservation's status, use
                     <Link :href="route('reservations.index')" class="font-medium text-[#173528] underline dark:text-slate-100">Reservations</Link>
                     or
-                    <Link :href="route('masses.unassigned')" class="font-medium text-[#173528] underline dark:text-slate-100">Unassigned Masses</Link>
+                    <Link :href="route('masses.unassigned')" class="font-medium text-[#173528] underline dark:text-slate-100">Mass Schedule</Link>
                     instead.
                 </p>
 

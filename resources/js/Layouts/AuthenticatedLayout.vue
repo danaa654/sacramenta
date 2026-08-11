@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import Sidebar from '@/Components/Sidebar.vue';
 import TopBar from '@/Components/TopBar.vue';
+import Toast from '@/Components/Toast.vue';
 
 defineProps({
     title: { type: String, default: '' },
@@ -28,6 +29,7 @@ const fireflies = Array.from({ length: 14 }, (_, i) => {
 </script>
 
 <template>
+    <Toast />
     <div class="relative h-screen overflow-hidden">
         <!-- Solid cream background, matches sidebar palette -->
         <div

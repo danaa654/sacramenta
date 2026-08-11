@@ -36,6 +36,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('archives', [ArchiveController::class, 'index'])->name('archives.index');
 
     Route::get('masses/unassigned', [MassScheduleController::class, 'unassigned'])->name('masses.unassigned');
+    Route::post('masses', [MassScheduleController::class, 'store'])->name('masses.store');
     Route::patch('masses/{reservation}/assign-priest', [MassScheduleController::class, 'assignPriest'])
         ->name('masses.assign-priest');
     Route::patch('masses/{reservation}/cancel', [MassScheduleController::class, 'cancel'])

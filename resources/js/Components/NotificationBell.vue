@@ -81,7 +81,7 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
         >
             <div
                 v-if="open"
-                class="absolute right-0 z-30 mt-2 w-80 origin-top-right overflow-hidden rounded-2xl border border-black/5 bg-white shadow-xl dark:border-white/10 dark:bg-slate-800"
+                class="absolute right-0 z-30 mt-2 w-80 origin-top-right overflow-hidden rounded-2xl border border-black/5 bg-white shadow-xl dark:border-white/10 dark:bg-[#0f241a]"
             >
                 <div class="flex items-center justify-between border-b border-black/5 px-4 py-3 dark:border-white/10">
                     <p class="font-serif text-base font-medium text-[#173528] dark:text-white">Notifications</p>

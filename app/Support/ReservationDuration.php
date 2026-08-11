@@ -22,6 +22,10 @@ class ReservationDuration
 {
     public static function minutes(?string $type, array $details = []): int
     {
+        if (! empty($details['duration_minutes']) && is_numeric($details['duration_minutes'])) {
+            return (int) $details['duration_minutes'];
+        }
+
         $flat = (int) (config("reservation_requirements.durations.{$type}")
             ?? config('reservation_requirements.durations.default', 30));
 

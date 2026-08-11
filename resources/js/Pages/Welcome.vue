@@ -24,7 +24,6 @@ const navLinks = [
     { label: 'Home', href: '#home' },
     { label: 'About', href: '#about' },
     { label: 'Services', href: '#services' },
-    { label: 'Contact', href: '#contact' },
 ];
 
 const features = [
@@ -283,9 +282,9 @@ const fireflies = Array.from({ length: 18 }, (_, i) => {
 <template>
     <Head title="Welcome" />
 
-    <div class="min-h-screen bg-[#F7F5EC] font-sans text-[#2f4a4a] dark:bg-slate-900 dark:text-slate-100">
+    <div class="min-h-screen bg-[#F7F5EC] font-sans text-[#2f4a4a] dark:bg-[#091413] dark:text-slate-100">
         <!-- Sticky header -->
-        <header class="sticky top-0 z-30 border-b border-white/50 bg-[#F7F5EC]/80 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/80">
+        <header class="sticky top-0 z-30 border-b border-white/50 bg-[#F7F5EC]/80 backdrop-blur-md dark:border-white/10 dark:bg-[#091413]/80">
             <div class="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6 md:px-10">
                 <a href="#home" class="shrink-0 font-serif text-lg font-semibold tracking-wide text-[#3f6470] dark:text-white sm:text-xl">
                     SACRAMENTA
@@ -334,7 +333,7 @@ const fireflies = Array.from({ length: 18 }, (_, i) => {
             <!-- Mobile nav drawer -->
             <div
                 v-if="mobileMenuOpen"
-                class="border-t border-white/50 bg-[#F7F5EC]/95 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95 lg:hidden"
+                class="border-t border-white/50 bg-[#F7F5EC]/95 backdrop-blur-md dark:border-white/10 dark:bg-[#091413]/95 lg:hidden"
             >
                 <nav class="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-3 sm:px-6">
                     <a
@@ -374,11 +373,11 @@ const fireflies = Array.from({ length: 18 }, (_, i) => {
                 <!-- Dark-mode overlay: darker on the text side, clear over the church -->
                 <div
                     class="absolute inset-0 hidden dark:block"
-                    style="background: linear-gradient(90deg, #0f172a 0%, #0f172a 26%, rgba(15,23,42,0.88) 40%, rgba(15,23,42,0.45) 56%, rgba(15,23,42,0.08) 72%);"
+                    style="background: linear-gradient(90deg, #091413 0%, #091413 26%, rgba(9,20,19,0.88) 40%, rgba(9,20,19,0.45) 56%, rgba(9,20,19,0.08) 72%);"
                 ></div>
                 <div
                     class="absolute inset-0 hidden dark:block"
-                    style="background: linear-gradient(180deg, rgba(15,23,42,0.25) 0%, rgba(15,23,42,0) 30%, rgba(15,23,42,0.55) 100%);"
+                    style="background: linear-gradient(180deg, rgba(9,20,19,0.25) 0%, rgba(9,20,19,0) 30%, rgba(9,20,19,0.55) 100%);"
                 ></div>
 
                 <!-- Fireflies (dark mode only) -->
