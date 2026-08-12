@@ -35,8 +35,21 @@ class StoreReservationRequest extends FormRequest
         return config('church_schedule.main_sanctuary_types', ['wedding', 'baptism', 'burial']);
     }
 
+    /**
+     * Anyone authenticated can submit this form. The one exception:
+     * override_conflict=1 is an admin-only escape hatch (it lets a
+     * detected schedule conflict through anyway) — see
+     * App\Policies\ReservationPolicy::overrideConflict(). A non-admin
+     * submitting override_conflict=1 is rejected here, at the door,
+     * rather than silently ignored (which would leave them confused
+     * about why their conflicting time still got rejected).
+     */
     public function authorize(): bool
     {
+        if ($this->boolean('override_conflict')) {
+            return $this->user()?->can('overrideConflict', \App\Models\Reservation::class) ?? false;
+        }
+
         return true;
     }
 
@@ -216,6 +229,15 @@ class StoreReservationRequest extends FormRequest
         $currentReservation = $this->route('reservation');
         $overriding = $this->boolean('override_conflict');
         $locationId = $this->input('location_id');
+        // Must be the SAME details payload ChurchAvailabilityService uses
+        // for duration (group baptism/batch First Communion/wedding
+        // ceremony type variants — see ReservationDuration) and for venue
+        // resolution (chapel_mass's details.chapel, school_mass's
+        // details.venue). Without this, findConflict() below silently
+        // fell back to flat default durations and, worse, could never
+        // resolve chapel_mass/school_mass to a venue at all — so those
+        // types never registered a conflict with anything.
+        $details = (array) $this->input('details', []);
 
         $blocked = $engine->isBlocked($date, $locationId);
 
@@ -236,7 +258,7 @@ class StoreReservationRequest extends FormRequest
             return;
         }
 
-        $conflict = $engine->findConflict($date, $time, $type, $currentReservation?->id, $locationId);
+        $conflict = $engine->findConflict($date, $time, $type, $currentReservation?->id, $locationId, $details);
 
         if ($conflict && ! $overriding) {
             $conflictTime = $conflict['start']->format('g:i A').' – '.$conflict['end']->format('g:i A');
@@ -267,6 +289,16 @@ class StoreReservationRequest extends FormRequest
         $currentReservation = $this->route('reservation');
         $details = (array) $this->input('details', []);
 
+        // linked_mass_reservation_id is its own top-level field, not part
+        // of `details` — fold it in here so SchedulingConflictService's
+        // sharesMassSlot() can recognize a Pamisa sa Kalag reservation as
+        // legitimately sharing its priest/time with the Mass it's linked
+        // to, instead of treating that Mass as a conflicting double-booking
+        // of the very priest it copied its own priest_id from.
+        if ($this->input('type') === 'pamisa_sa_kalag') {
+            $details['linked_mass_reservation_id'] = $this->input('linked_mass_reservation_id');
+        }
+
         $priestId = $this->input('priest_id');
 
         if ($priestId) {
@@ -281,12 +313,10 @@ class StoreReservationRequest extends FormRequest
 
             if ($conflict) {
                 $priestName = Priest::find($priestId)?->name ?? 'The priest';
-                $conflictTime = Carbon::parse($conflict->event_time)->format('g:i A');
-                $conflictDate = $conflict->event_date->format('F j, Y');
 
                 $validator->errors()->add(
                     'event_time',
-                    "{$priestName} already has a confirmed reservation at {$conflictTime} on {$conflictDate}."
+                    $service->formatPriestConflictMessage($priestName, $conflict)
                 );
 
                 return;

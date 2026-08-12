@@ -27,6 +27,30 @@ class SchedulingConflictService
     }
 
     /**
+     * The single, structured "priest already has a conflict" message,
+     * shared by every call site that reports a priest double-booking
+     * (StoreReservationRequest on create/edit, ReservationController on
+     * confirm and on priest reassignment, MassScheduleController on Mass
+     * creation and quick priest-assign). Keeping the wording in one place
+     * means fixing/adjusting the message once fixes it everywhere, instead
+     * of four subtly different one-line strings drifting apart.
+     */
+    public function formatPriestConflictMessage(string $priestName, Reservation $conflict): string
+    {
+        $label = config("church_schedule.labels.{$conflict->type}", ucwords(str_replace('_', ' ', $conflict->type)));
+        $start = Carbon::parse($conflict->event_date->format('Y-m-d').' '.$conflict->event_time);
+        $end = $start->copy()->addMinutes($this->durationFor($conflict->type, $conflict->details ?? []));
+
+        return "⚠️ PRIEST SCHEDULE CONFLICT\n\n"
+            ."{$priestName} is already assigned to:\n\n"
+            ."{$label}\n"
+            .$start->format('F j, Y')."\n"
+            .$start->format('g:i A').'–'.$end->format('g:i A')."\n\n"
+            .'The selected schedule overlaps with this event.'."\n\n"
+            .'Please select another time or assign another available priest.';
+    }
+
+    /**
      * Find a confirmed reservation that would collide with the given
      * priest + date + time window.
      */

@@ -53,6 +53,47 @@ class ChurchAvailabilityService
      */
     protected const BLOCKING_STATUSES = ['confirmed'];
 
+    /**
+     * Request-lifetime cache of occupiedPeriods() results, keyed by
+     * "{date}|{excludeReservationId}". Several call sites — most notably
+     * suggestSlots() (up to 14 days) and MassScheduleController::store()
+     * for a multi-day recurring series (one query per date, per candidate
+     * day) — end up asking for the exact same date's occupied periods
+     * multiple times within a single request. occupiedPeriods() re-runs
+     * both a Reservation query and a MassSchedule::where('is_active', true)
+     * ->get() every time it's called, so without this cache a 14-day
+     * suggestion search alone issues up to 28 avoidable queries. Safe to
+     * cache per-request only (not across requests) since a save elsewhere
+     * in the SAME request could otherwise be missed — cleared automatically
+     * when the request ends.
+     */
+    protected array $occupiedPeriodsCache = [];
+
+    /**
+     * Drop the request-lifetime occupiedPeriods() cache for a specific
+     * date (or every cached date, when omitted). Call this after writing
+     * a Reservation/MassSchedule row if the SAME request will go on to
+     * ask this engine about that date again — every current call site
+     * (ReservationController::store/update, MassScheduleController::store)
+     * only reads availability *before* writing, so this isn't required
+     * today, but it's here so a future call site that reads-after-write
+     * in one request doesn't silently get stale cached results.
+     */
+    public function clearCache(?string $date = null): void
+    {
+        if ($date === null) {
+            $this->occupiedPeriodsCache = [];
+
+            return;
+        }
+
+        foreach (array_keys($this->occupiedPeriodsCache) as $key) {
+            if (str_starts_with($key, "{$date}|")) {
+                unset($this->occupiedPeriodsCache[$key]);
+            }
+        }
+    }
+
     public function durationMinutes(string $type, array $details = []): int
     {
         return ReservationDuration::minutes($type, $details);
@@ -186,6 +227,12 @@ class ChurchAvailabilityService
      */
     public function occupiedPeriods(string $date, ?int $excludeReservationId = null): array
     {
+        $cacheKey = $date.'|'.($excludeReservationId ?? '');
+
+        if (array_key_exists($cacheKey, $this->occupiedPeriodsCache)) {
+            return $this->occupiedPeriodsCache[$cacheKey];
+        }
+
         $reservations = Reservation::query()
             ->with('priest:id,name')
             ->whereDate('event_date', $date)
@@ -258,7 +305,7 @@ class ChurchAvailabilityService
                 ];
             });
 
-        return $periods->concat($templateSlots)
+        return $this->occupiedPeriodsCache[$cacheKey] = $periods->concat($templateSlots)
             ->sortBy(fn ($p) => $p['start']->timestamp)
             ->values()
             ->all();

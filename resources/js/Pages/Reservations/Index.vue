@@ -1,7 +1,9 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { reactive, ref, watch } from 'vue';
+
+const page = usePage();
 
 const props = defineProps({
     reservations: {
@@ -83,7 +85,17 @@ function assignPriest(reservationId) {
     router.patch(
         route('masses.assign-priest', reservationId),
         { priest_id: assignments[reservationId] || null },
-        { preserveScroll: true }
+        {
+            preserveScroll: true,
+            // A rejected priest assignment (see priest_id error banner
+            // below) must not leave the <select> silently showing the
+            // priest that was actually refused — snap it back to
+            // whatever's really saved for this row.
+            onError: () => {
+                const row = props.reservations.data.find((r) => r.id === reservationId);
+                assignments[reservationId] = row?.priest_id ?? '';
+            },
+        }
     );
 }
 
@@ -259,6 +271,13 @@ function openReservation(reservation) {
                         />
                         Show Mass Schedule entries
                     </label>
+                </div>
+
+                <div
+                    v-if="page.props.errors?.priest_id"
+                    class="mb-4 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm font-medium text-red-700 shadow-md whitespace-pre-line dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
+                >
+                    {{ page.props.errors.priest_id }}
                 </div>
 
                 <div class="overflow-hidden rounded-2xl border border-white/80 bg-white/90 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">

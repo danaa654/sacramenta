@@ -30,6 +30,7 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+            'role' => User::ROLE_STAFF,
         ];
     }
 
@@ -40,6 +41,17 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
+        ]);
+    }
+
+    /**
+     * An administrator — can delete reservations, correct locked/completed
+     * records, and override schedule conflicts. See App\Policies\ReservationPolicy.
+     */
+    public function admin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => User::ROLE_ADMIN,
         ]);
     }
 }

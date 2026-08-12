@@ -812,6 +812,9 @@ function submitCorrection() {
                                         {{ priest.name }}
                                     </option>
                                 </select>
+                                <p v-if="actionsForm.errors.priest_id" class="mt-1.5 text-sm text-red-600 whitespace-pre-line">
+                                    {{ actionsForm.errors.priest_id }}
+                                </p>
                             </div>
 
                             <div>
@@ -847,7 +850,7 @@ function submitCorrection() {
                                 </p>
                             </div>
 
-                            <p v-if="actionsForm.errors.status" class="text-sm text-red-600">
+                            <p v-if="actionsForm.errors.status" class="text-sm text-red-600 whitespace-pre-line">
                                 {{ actionsForm.errors.status }}
                             </p>
 

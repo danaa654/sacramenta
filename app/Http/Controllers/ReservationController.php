@@ -342,6 +342,8 @@ class ReservationController extends Controller
      */
     public function correct(Request $request, Reservation $reservation): RedirectResponse
     {
+        $this->authorize('correct', $reservation);
+
         abort_unless($reservation->is_locked, 403, 'Correct Record is only available for completed or archived reservations. Use the normal Edit action instead.');
 
         $validated = $request->validate([
@@ -408,6 +410,8 @@ class ReservationController extends Controller
 
     public function destroy(Request $request, Reservation $reservation): RedirectResponse
     {
+        $this->authorize('delete', $reservation);
+
         // A completed (or already archived) reservation is a parish
         // record — it's what a certificate or the Archives page is
         // generated from. Deleting it would silently break "find the
@@ -651,10 +655,28 @@ class ReservationController extends Controller
             'payment_status' => ['required', Rule::in(['unpaid', 'partial', 'paid', 'waived'])],
         ]);
 
+        $newPriestId = $validated['priest_id'] ?? null;
+
+        // Priest reassignment must ALWAYS be checked for a conflict, not
+        // only when the status is also transitioning into 'confirmed'.
+        // confirmationBlocker() below skips its own checks entirely once
+        // a reservation is already confirmed (nothing about its status is
+        // changing), which used to mean reassigning the priest on an
+        // already-confirmed reservation right here bypassed conflict
+        // detection completely — a priest could silently be double-booked.
+        // This runs unconditionally, before the mutation, so it always
+        // sees the OLD priest_id via $reservation->id as the exclusion key
+        // and the NEW priest_id as the one being checked.
+        $priestBlocker = $this->priestReassignmentBlocker($reservation, $newPriestId);
+
+        if ($priestBlocker) {
+            return back()->withErrors(['priest_id' => $priestBlocker]);
+        }
+
         // Apply the priest reassignment before running confirm-time conflict
         // checks, so "assign priest + confirm" in one click is checked
         // against the priest that's about to be saved, not the old one.
-        $reservation->priest_id = $validated['priest_id'] ?? null;
+        $reservation->priest_id = $newPriestId;
 
         $completedLockBlocker = $this->completedLockBlocker($reservation, $validated['status']);
 
@@ -794,9 +816,8 @@ class ReservationController extends Controller
 
             if ($conflict) {
                 $priestName = $reservation->priest?->name ?? 'This priest';
-                $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
 
-                return "Cannot confirm — {$priestName} was already confirmed for {$conflictTime} on the same date by another reservation.";
+                return $this->conflicts->formatPriestConflictMessage($priestName, $conflict);
             }
         }
 
@@ -838,6 +859,57 @@ class ReservationController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Centralized priest double-booking guard for a reassignment — used
+     * specifically by updateActions() above to close the gap where
+     * confirmationBlocker() skips ALL of its checks once a reservation is
+     * already confirmed (it only cares about a STATUS transition, not a
+     * priest change). Runs regardless of the reservation's current or
+     * incoming status: a priest genuinely cannot be double-booked, whether
+     * the reservation holding one side of the conflict is a draft or
+     * already confirmed.
+     *
+     * Deliberately mirrors confirmationBlocker()'s own priest check
+     * (same SchedulingConflictService::findPriestConflict call, same
+     * shares-a-Mass-slot exemption for Pamisa sa Kalag via
+     * linked_mass_reservation_id) so the two never disagree about what
+     * counts as a conflict — only WHEN they run differs.
+     */
+    protected function priestReassignmentBlocker(Reservation $reservation, ?int $newPriestId): ?string
+    {
+        // Unassigning a priest, or "reassigning" to the same priest it
+        // already has, can never create a new conflict.
+        if (! $newPriestId || $newPriestId === $reservation->priest_id) {
+            return null;
+        }
+
+        if (! $reservation->event_date || ! $reservation->event_time) {
+            return null;
+        }
+
+        $conflictDetails = array_merge(
+            $reservation->details ?? [],
+            ['linked_mass_reservation_id' => $reservation->linked_mass_reservation_id]
+        );
+
+        $conflict = $this->conflicts->findPriestConflict(
+            $newPriestId,
+            $reservation->event_date->format('Y-m-d'),
+            substr((string) $reservation->event_time, 0, 5),
+            $reservation->type,
+            $reservation->id,
+            $conflictDetails
+        );
+
+        if (! $conflict) {
+            return null;
+        }
+
+        $priestName = Priest::find($newPriestId)?->name ?? 'This priest';
+
+        return $this->conflicts->formatPriestConflictMessage($priestName, $conflict);
     }
 
     /**

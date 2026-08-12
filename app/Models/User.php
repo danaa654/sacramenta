@@ -13,8 +13,18 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
+    public const ROLE_STAFF = 'staff';
+
+    public const ROLE_ADMIN = 'admin';
+
     /**
      * The attributes that are mass assignable.
+     *
+     * Deliberately does NOT include 'role' — role changes must go through
+     * an explicit admin action, never through a form a user submits about
+     * themselves (e.g. ProfileController::update), or any other endpoint
+     * that mass-assigns from request input. Promoting/demoting a user is
+     * intentionally a separate, deliberate write.
      *
      * @var list<string>
      */
@@ -45,5 +55,10 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === self::ROLE_ADMIN;
     }
 }

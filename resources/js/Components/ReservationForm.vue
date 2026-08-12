@@ -1877,6 +1877,12 @@ option:disabled {
     margin-top: 0.375rem;
     font-size: 0.8125rem;
     color: #dc2626;
+    /* Priest-conflict messages (see SchedulingConflictService::
+       formatPriestConflictMessage()) are intentionally multi-line —
+       without this, the \n characters collapse to spaces and the
+       structured "⚠️ PRIEST SCHEDULE CONFLICT" block reads as one
+       run-on sentence. */
+    white-space: pre-line;
 }
 
 :global(.dark) .field-error {

@@ -3,7 +3,6 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -73,10 +72,23 @@ return new class extends Migration
         });
     }
 
+    /**
+     * Whether an index with this name exists on the given table.
+     *
+     * IMPORTANT: this must stay driver-agnostic. It used to run a raw
+     * `SHOW INDEX FROM ... WHERE Key_name = ?` query, which is MySQL-only
+     * syntax — it silently worked in production (MySQL) but threw a
+     * SQLSTATE[HY000] syntax error the moment this migration ran against
+     * SQLite (e.g. the test suite's in-memory DB via RefreshDatabase),
+     * since SQLite has no SHOW INDEX statement at all. Schema::getIndexes()
+     * is Laravel's own driver-agnostic equivalent (supported on MySQL,
+     * SQLite, PostgreSQL, and SQL Server alike) — use that instead of any
+     * hand-rolled raw SQL here.
+     */
     protected function indexExists(string $table, string $indexName): bool
     {
-        $result = DB::select('SHOW INDEX FROM `'.$table.'` WHERE Key_name = ?', [$indexName]);
-
-        return count($result) > 0;
+        return collect(Schema::getIndexes($table))
+            ->pluck('name')
+            ->contains($indexName);
     }
 };

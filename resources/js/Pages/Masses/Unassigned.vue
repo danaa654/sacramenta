@@ -306,7 +306,7 @@ function submitSpecialMass() {
                                 <option value="">— Unassigned —</option>
                                 <option v-for="priest in priests" :key="priest.id" :value="priest.id">{{ priest.name }}</option>
                             </select>
-                            <p v-if="form.errors.priest_id" class="mt-1 text-xs text-[#B84545]">{{ form.errors.priest_id }}</p>
+                            <p v-if="form.errors.priest_id" class="mt-1 text-xs text-[#B84545] whitespace-pre-line">{{ form.errors.priest_id }}</p>
                         </div>
 
                         <div class="sm:col-span-2">
@@ -339,9 +339,9 @@ function submitSpecialMass() {
 
                 <div
                     v-if="page.props.errors?.priest_id || page.props.errors?.event_time"
-                    class="rounded-2xl border border-[#B84545]/30 bg-[#F3D9D9]/60 p-4 text-sm font-medium text-[#8a2f2f] shadow-md"
+                    class="rounded-2xl border border-[#B84545]/30 bg-[#F3D9D9]/60 p-4 text-sm font-medium text-[#8a2f2f] shadow-md whitespace-pre-line"
                 >
-                    ⚠ {{ page.props.errors.priest_id || page.props.errors.event_time }}
+                    {{ page.props.errors.priest_id || page.props.errors.event_time }}
                 </div>
 
                 <div v-if="dateKeys.length === 0" class="rounded-2xl border border-white/80 bg-white/90 p-8 text-center text-sm text-[#3f6470]/70 shadow-md dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-300">

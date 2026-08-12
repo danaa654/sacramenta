@@ -169,11 +169,10 @@ class MassScheduleController extends Controller
 
                 if ($conflict) {
                     $priestName = Priest::find($validated['priest_id'])?->name ?? 'This priest';
-                    $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
 
                     return back()
                         ->withInput()
-                        ->withErrors(['priest_id' => "Schedule Conflict — {$priestName} is already assigned to \"{$conflict->display_name}\" on ".\Carbon\Carbon::parse($date)->format('M j')." at {$conflictTime}."]);
+                        ->withErrors(['priest_id' => $this->conflicts->formatPriestConflictMessage($priestName, $conflict)]);
                 }
             }
         }
@@ -244,10 +243,9 @@ class MassScheduleController extends Controller
 
             if ($conflict) {
                 $priestName = Priest::find($priestId)?->name ?? 'This priest';
-                $conflictTime = \Carbon\Carbon::parse($conflict->event_time)->format('g:i A');
 
                 return back()->withErrors([
-                    'priest_id' => "Schedule Conflict — {$priestName} is already assigned to \"{$conflict->display_name}\" at {$conflictTime} on the same date.",
+                    'priest_id' => $this->conflicts->formatPriestConflictMessage($priestName, $conflict),
                 ]);
             }
         }
