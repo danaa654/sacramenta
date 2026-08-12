@@ -47,11 +47,20 @@ use Carbon\Carbon;
 class ChurchAvailabilityService
 {
     /**
-     * Statuses that actually hold a slot. Mirrors SchedulingConflictService:
-     * drafts are tentative and may overlap each other; once something is
-     * confirmed it becomes authoritative and blocks everything else.
+     * Statuses that actually hold a slot: draft, confirmed, and completed
+     * all legitimately occupy their date/time — a Wedding still in Draft
+     * blocks a Burial from being saved (or confirmed) at the same
+     * overlapping time, the same way a confirmed reservation does, so
+     * staff can't end up with two live events double-booked into the
+     * same venue just because neither has been confirmed yet. 'archived'
+     * is this app's cancel state for a reservation (see
+     * ReservationPolicy::updateStatus's "'archived' (cancel)" note) —
+     * an archived/cancelled reservation has given up its slot, so it's
+     * correctly excluded here. Mirrors
+     * App\Services\SchedulingConflictService::BLOCKING_STATUSES — keep
+     * both in sync.
      */
-    protected const BLOCKING_STATUSES = ['confirmed'];
+    protected const BLOCKING_STATUSES = ['draft', 'confirmed', 'completed'];
 
     /**
      * Request-lifetime cache of occupiedPeriods() results, keyed by
@@ -257,10 +266,13 @@ class ChurchAvailabilityService
                     'label' => $this->label($r->type),
                     'reservation_id' => $r->id,
                     'reservation_number' => $r->id ? 'RES-'.str_pad((string) $r->id, 5, '0', STR_PAD_LEFT) : null,
+                    'contact_name' => $r->contact_name,
+                    'display_name' => $r->display_name,
                     'start' => $start,
                     'end' => $start->copy()->addMinutes($this->durationMinutes($r->type, $r->details ?? [])),
                     'priest' => $r->priest?->name,
                     'status' => $r->status,
+                    'conflict_overridden' => (bool) $r->conflict_overridden,
                     'priority' => $this->priority($r->type),
                     'venue_key' => $venue['key'],
                     'venue_label' => $venue['label'],
@@ -294,10 +306,13 @@ class ChurchAvailabilityService
                     'label' => $s->label ?: $this->label('mass'),
                     'reservation_id' => null,
                     'reservation_number' => null,
+                    'contact_name' => null,
+                    'display_name' => null,
                     'start' => $start,
                     'end' => $start->copy()->addMinutes($this->durationMinutes('mass')),
                     'priest' => null,
                     'status' => 'scheduled',
+                    'conflict_overridden' => false,
                     'priority' => $this->priority('mass'),
                     'venue_key' => $mainVenue['key'],
                     'venue_label' => $mainVenue['label'],
@@ -499,6 +514,89 @@ class ChurchAvailabilityService
         }
 
         return null;
+    }
+
+    /**
+     * Every pair of upcoming reservations that are currently double-booked
+     * into the same venue at an overlapping time — i.e. an "Unresolved
+     * Conflicts" scan for the Dashboard, not a single availability check.
+     *
+     * This finds TWO different situations, both worth surfacing:
+     *  - A conflict an admin deliberately let through via the
+     *    override_conflict escape hatch (see StoreReservationRequest),
+     *    which is a legitimate temporary hold but shouldn't be forgotten
+     *    about as its date approaches.
+     *  - A conflict that predates BLOCKING_STATUSES including 'draft'
+     *    (e.g. two Drafts saved back when only 'confirmed' reservations
+     *    were checked against each other) — these were never flagged at
+     *    save time at all, so scanning is the only way to surface them.
+     *
+     * Scans day-by-day over the lookahead window rather than one large
+     * query, reusing occupiedPeriods() (already per-request cached) so a
+     * date with only one occupying reservation costs nothing extra.
+     * Bounded to $lookaheadDays (default 60) — a full-calendar scan isn't
+     * needed for a "surface it before it becomes a problem" widget, and
+     * pairs found here disappear on their own once the conflict is
+     * resolved (moved, or one side cancelled/archived).
+     */
+    public function upcomingConflicts(int $lookaheadDays = 60): array
+    {
+        $today = Carbon::today();
+        $end = $today->copy()->addDays($lookaheadDays);
+
+        $dates = Reservation::query()
+            ->whereBetween('event_date', [$today, $end])
+            ->whereIn('status', self::BLOCKING_STATUSES)
+            ->whereIn('type', config('church_schedule.occupying_types', []))
+            ->whereNotNull('event_time')
+            ->selectRaw('event_date')
+            ->groupBy('event_date')
+            ->havingRaw('COUNT(*) > 1')
+            ->pluck('event_date')
+            ->map(fn ($d) => Carbon::parse($d)->format('Y-m-d'));
+
+        $conflicts = [];
+
+        foreach ($dates as $date) {
+            $byVenue = collect($this->occupiedPeriods($date))
+                ->filter(fn ($p) => $p['reservation_id']) // skip unmaterialized Mass template slots
+                ->groupBy('venue_key');
+
+            foreach ($byVenue as $periods) {
+                $periods = $periods->sortBy(fn ($p) => $p['start']->timestamp)->values();
+
+                for ($i = 0; $i < $periods->count(); $i++) {
+                    for ($j = $i + 1; $j < $periods->count(); $j++) {
+                        $a = $periods[$i];
+                        $b = $periods[$j];
+
+                        if ($a['start']->lt($b['end']) && $b['start']->lt($a['end'])) {
+                            $conflicts[] = [
+                                'date' => $date,
+                                'venue_label' => $a['venue_label'],
+                                'reservations' => collect([$a, $b])->map(fn ($p) => [
+                                    'reservation_id' => $p['reservation_id'],
+                                    'reservation_number' => $p['reservation_number'],
+                                    'type' => $p['type'],
+                                    'label' => $p['label'],
+                                    'contact_name' => $p['contact_name'],
+                                    'display_name' => $p['display_name'],
+                                    'priest' => $p['priest'],
+                                    'status' => $p['status'],
+                                    'conflict_overridden' => $p['conflict_overridden'],
+                                    'start_time' => $p['start']->format('g:i A'),
+                                    'end_time' => $p['end']->format('g:i A'),
+                                ])->all(),
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+
+        usort($conflicts, fn ($x, $y) => $x['date'] <=> $y['date']);
+
+        return $conflicts;
     }
 
     /**

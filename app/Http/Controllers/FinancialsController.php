@@ -64,10 +64,16 @@ class FinancialsController extends Controller
         // Totals computed over the *filtered* set (not just the current page).
         $totalsSource = (clone $query)->get(['offering_amount', 'amount_paid', 'payment_status']);
 
+        // A 'waived' reservation's offering was explicitly forgiven by the
+        // parish — it should never count toward "Expected" or "Outstanding"
+        // (it isn't money that's owed), even though the row still carries
+        // its original offering_amount for record-keeping purposes.
+        $unwaived = $totalsSource->where('payment_status', '!=', 'waived');
+
         $totals = [
-            'expected' => (float) $totalsSource->sum('offering_amount'),
+            'expected' => (float) $unwaived->sum('offering_amount'),
             'collected' => (float) $totalsSource->sum('amount_paid'),
-            'outstanding' => (float) $totalsSource->sum(fn ($r) => max(0, $r->offering_amount - $r->amount_paid)),
+            'outstanding' => (float) $unwaived->sum(fn ($r) => max(0, $r->offering_amount - $r->amount_paid)),
             'count' => $totalsSource->count(),
             'paidCount' => $totalsSource->where('payment_status', 'paid')->count(),
             'unpaidCount' => $totalsSource->whereIn('payment_status', ['unpaid', 'partial'])->count(),

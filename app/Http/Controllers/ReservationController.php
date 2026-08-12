@@ -620,6 +620,12 @@ class ReservationController extends Controller
             return back()->withErrors(['status' => $completedLockBlocker]);
         }
 
+        $futureDateBlocker = $this->futureDateBlocker($reservation, $validated['status']);
+
+        if ($futureDateBlocker) {
+            return back()->withErrors(['status' => $futureDateBlocker]);
+        }
+
         $blocker = $this->confirmationBlocker($reservation, $validated['status']);
 
         if ($blocker) {
@@ -686,6 +692,12 @@ class ReservationController extends Controller
 
         if ($completedLockBlocker) {
             return back()->withErrors(['status' => $completedLockBlocker]);
+        }
+
+        $futureDateBlocker = $this->futureDateBlocker($reservation, $validated['status']);
+
+        if ($futureDateBlocker) {
+            return back()->withErrors(['status' => $futureDateBlocker]);
         }
 
         $blocker = $this->confirmationBlocker($reservation, $validated['status']);
@@ -770,6 +782,26 @@ class ReservationController extends Controller
         }
 
         return 'This reservation is already completed — it can only be moved to Archived from here, not reopened.';
+    }
+
+    /**
+     * A reservation can't be marked Completed until its event date has
+     * actually happened — a sacrament scheduled weeks or months out isn't
+     * "done" yet just because someone updated its status. Only checks the
+     * date (not the time), so a reservation becomes eligible starting the
+     * same calendar day its event is scheduled.
+     */
+    protected function futureDateBlocker(Reservation $reservation, string $newStatus): ?string
+    {
+        if ($newStatus !== 'completed' || ! $reservation->event_date) {
+            return null;
+        }
+
+        if ($reservation->event_date->startOfDay()->gt(now()->startOfDay())) {
+            return 'Cannot mark this reservation as Completed — its event date ('.$reservation->event_date->format('M j, Y').') hasn\'t happened yet.';
+        }
+
+        return null;
     }
 
     /**
@@ -944,11 +976,14 @@ class ReservationController extends Controller
     /**
      * GET /reservations/availability?priest_id=X&date=Y[&exclude=Z][&chapel=C&type=chapel_mass]
      *
-     * Returns the list of "HH:MM" slots already taken by CONFIRMED
-     * reservations for that priest on that date, so the create/edit form
-     * can grey them out before the user submits. `exclude` lets the edit
-     * form ignore the reservation currently being edited. When `chapel`
-     * is also supplied (Chapel Mass bookings), a second list of slots
+     * Returns the list of "HH:MM" slots already taken by a reservation
+     * that still legitimately holds its slot — draft, confirmed, or
+     * completed (see SchedulingConflictService::BLOCKING_STATUSES; an
+     * archived reservation is this app's cancel state, so it never holds
+     * a slot) — for that priest on that date, so the create/edit form can
+     * grey them out before the user submits. `exclude` lets the edit form
+     * ignore the reservation currently being edited. When `chapel` is
+     * also supplied (Chapel Mass bookings), a second list of slots
      * already taken at that chapel is returned too.
      */
     public function availability(Request $request): JsonResponse
@@ -966,7 +1001,7 @@ class ReservationController extends Controller
         if (! empty($validated['priest_id'])) {
             $taken = Reservation::query()
                 ->where('priest_id', $validated['priest_id'])
-                ->where('status', 'confirmed')
+                ->whereIn('status', SchedulingConflictService::BLOCKING_STATUSES)
                 ->whereDate('event_date', $validated['date'])
                 ->whereNotNull('event_time')
                 ->when($validated['exclude'] ?? null, fn ($q, $excludeId) => $q->where('id', '!=', $excludeId))
@@ -981,7 +1016,7 @@ class ReservationController extends Controller
             $takenChapel = Reservation::query()
                 ->where('type', 'chapel_mass')
                 ->where('details->chapel', $validated['chapel'])
-                ->where('status', 'confirmed')
+                ->whereIn('status', SchedulingConflictService::BLOCKING_STATUSES)
                 ->whereDate('event_date', $validated['date'])
                 ->whereNotNull('event_time')
                 ->when($validated['exclude'] ?? null, fn ($q, $excludeId) => $q->where('id', '!=', $excludeId))
@@ -994,9 +1029,11 @@ class ReservationController extends Controller
         // share the single Main Sanctuary venue (config
         // `church_schedule.main_sanctuary_types` — the same list
         // StoreReservationRequest and ChurchAvailabilityService use), so
-        // any confirmed reservation of these types on the same date blocks
-        // a slot for the others too — same idea as the per-priest /
-        // per-chapel checks above.
+        // any reservation of these types that still legitimately holds
+        // its slot (draft, confirmed, or completed — see
+        // SchedulingConflictService::BLOCKING_STATUSES) on the same date
+        // blocks a slot for the others too — same idea as the per-priest
+        // / per-chapel checks above.
         $takenVenue = collect();
         $mainSanctuaryTypes = config('church_schedule.main_sanctuary_types', ['wedding', 'baptism', 'burial']);
 
@@ -1007,7 +1044,7 @@ class ReservationController extends Controller
                 $takenVenue = Reservation::query()
                     ->where('location_id', $mainSanctuaryId)
                     ->whereIn('type', $mainSanctuaryTypes)
-                    ->where('status', 'confirmed')
+                    ->whereIn('status', SchedulingConflictService::BLOCKING_STATUSES)
                     ->whereDate('event_date', $validated['date'])
                     ->whereNotNull('event_time')
                     ->when($validated['exclude'] ?? null, fn ($q, $excludeId) => $q->where('id', '!=', $excludeId))

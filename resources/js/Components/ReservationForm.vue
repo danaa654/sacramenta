@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import axios from 'axios';
 import ChurchAvailabilityPanel from '@/Components/ChurchAvailabilityPanel.vue';
@@ -721,10 +721,213 @@ const occupiesChurch = computed(() => CHURCH_OCCUPYING_TYPES.includes(form.type)
 
 const churchConflict = ref(null);
 const churchBlocked = ref(null);
+// Mirrors ChurchAvailabilityPanel's latest suggestions/venue so the
+// top-of-form "why this didn't save" banner (see saveFailureBanner below)
+// can offer the exact same nearest-available-time shortcuts without
+// re-fetching them itself.
+const churchSuggestions = ref([]);
+const churchVenue = ref(null);
+const availabilityPanelRef = ref(null);
 
-function onChurchConflictChange({ conflict, blocked, overrideReason }) {
+// ---- Contact Person / Mobile Number — immediate required-field feedback ----
+// Both are required for every type except Pamisa sa Kalag (see
+// StoreReservationRequest::rules()). Previously the red "required" message
+// only ever appeared AFTER a full round trip to the server — someone who
+// left Mobile Number blank, like here, would click Save and (if nothing
+// else drew their eye) not understand why it didn't go through. These
+// track "touched" state per field so the message appears the moment the
+// admin leaves the field empty, or the moment they try to submit —
+// whichever comes first — without nagging before they've even had a
+// chance to type.
+const touchedContactName = ref(false);
+const touchedContactMobile = ref(false);
+const attemptedSubmit = ref(false);
+
+const contactFieldsRequired = computed(() => form.type !== 'pamisa_sa_kalag');
+
+const contactNameError = computed(() => {
+    if (form.errors.contact_name) return form.errors.contact_name;
+    if (!contactFieldsRequired.value) return null;
+    if ((touchedContactName.value || attemptedSubmit.value) && !form.contact_name.trim()) {
+        return 'Contact person is required.';
+    }
+    return null;
+});
+
+const contactMobileError = computed(() => {
+    if (form.errors.contact_mobile) return form.errors.contact_mobile;
+    if (!contactFieldsRequired.value) return null;
+    if ((touchedContactMobile.value || attemptedSubmit.value) && !form.contact_mobile.trim()) {
+        return 'Mobile number is required.';
+    }
+    if ((touchedContactMobile.value || attemptedSubmit.value) && form.contact_mobile.trim()) {
+        const digits = form.contact_mobile.replace(/\D/g, '');
+        if (digits.length !== 11) {
+            return 'Mobile number must be 11 digits.';
+        }
+    }
+    return null;
+});
+
+// Keep the mobile number to digits only, capped at 11 digits, and format
+// it as "09XX XXX XXXX" as the user types.
+function onContactMobileInput(event) {
+    const digits = event.target.value.replace(/\D/g, '').slice(0, 11);
+    let formatted = digits;
+    if (digits.length > 7) {
+        formatted = `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
+    } else if (digits.length > 4) {
+        formatted = `${digits.slice(0, 4)} ${digits.slice(4)}`;
+    }
+    form.contact_mobile = formatted;
+}
+
+const requiredFieldMessages = computed(() => {
+    return [contactNameError.value, contactMobileError.value, ...typeRequiredMessages.value].filter(Boolean);
+});
+
+// ---- Generic required-field markers (the * next to a label) + messages ----
+// Mirrors StoreReservationRequest::rules() / conditionalRules() for the
+// fields that are simple scalar inputs (skips the repeatable
+// children/godparents/students rows, which already manage their own
+// validation UI). Kept as plain path -> label pairs so the SAME list
+// drives three things at once: the "*" marker next to a label, the red
+// border + message under that field, and the summary in the save-failure
+// banner — one source of truth instead of three that could drift apart.
+const FIELD_LABELS = {
+    event_date: 'Event Date',
+    event_time: 'Event Time',
+    'details.groom_name': "Groom's Full Name",
+    'details.bride_name': "Bride's Full Name",
+    'details.ceremony_type': 'Ceremony Type',
+    'details.baptism_type': 'Baptism Type',
+    'details.child_name': "Child's Name",
+    'details.father_name': "Father's Name",
+    'details.mother_maiden_name': "Mother's Maiden Name",
+    'details.deceased_name': "Deceased Person's Name",
+    'details.service_type': 'Service Type',
+    'details.names': 'Names of the Deceased',
+    linked_mass_reservation_id: 'Mass Schedule',
+    'details.school_name': 'School Name',
+    'details.school_contact_person': 'Contact Person',
+    'details.venue': 'Venue',
+    'details.chapel': 'Kapilya / Barangay',
+    'details.booking_mode': 'Booking Type',
+    'details.communicant_count': 'Expected Number of Students',
+    'details.confirmand_name': "Confirmand's Name",
+    contact_address: 'Address',
+    'details.business_name': 'Business / Office Name',
+    'details.item_description': 'Vehicle / Article Description',
+    'details.patient_location': 'Hospital Room / Home Address',
+    'details.intention': 'Intention / Petition',
+};
+
+function fieldLabel(path) {
+    return FIELD_LABELS[path] || path;
+}
+
+function getByPath(path) {
+    return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), form);
+}
+
+function isEmptyValue(v) {
+    if (v === null || v === undefined) return true;
+    if (typeof v === 'string') return v.trim() === '';
+    if (Array.isArray(v)) return v.length === 0;
+    return false;
+}
+
+const requiredFieldsForType = computed(() => {
+    const t = form.type;
+    const list = [];
+
+    switch (t) {
+        case 'wedding':
+            list.push('details.groom_name', 'details.bride_name', 'details.ceremony_type');
+            break;
+        case 'baptism':
+            list.push('details.baptism_type');
+            if (form.details?.baptism_type !== 'group') {
+                list.push('details.child_name', 'details.father_name', 'details.mother_maiden_name');
+            }
+            break;
+        case 'burial':
+            list.push('details.deceased_name', 'details.service_type');
+            break;
+        case 'pamisa_sa_kalag':
+            list.push('details.names', 'linked_mass_reservation_id');
+            break;
+        case 'school_mass':
+            list.push('details.school_name', 'details.school_contact_person', 'details.venue');
+            break;
+        case 'chapel_mass':
+            list.push('details.chapel');
+            break;
+        case 'first_communion':
+            list.push('details.booking_mode');
+            if (form.details?.booking_mode === 'individual') list.push('details.child_name');
+            if (form.details?.booking_mode === 'school_batch') {
+                // school_contact_person is technically required by the
+                // backend for this booking mode too, but there's no input
+                // for it anywhere in this form — flagging it here would
+                // produce a banner message the admin has no field to fix.
+                // Left out until that field exists in the UI.
+                list.push('details.school_name', 'details.communicant_count');
+            }
+            break;
+        case 'confirmation':
+            list.push('details.confirmand_name');
+            break;
+        case 'house_blessing':
+            list.push('contact_address');
+            break;
+        case 'business_blessing':
+            list.push('contact_address', 'details.business_name');
+            break;
+        case 'vehicle_blessing':
+            list.push('details.item_description');
+            break;
+        case 'anointing_of_the_sick':
+            list.push('details.patient_location');
+            break;
+        case 'special_intention':
+            list.push('details.intention');
+            break;
+    }
+
+    if (t && t !== 'pamisa_sa_kalag') {
+        list.push('event_date', 'event_time');
+    }
+
+    return list;
+});
+
+function isRequiredField(path) {
+    return requiredFieldsForType.value.includes(path);
+}
+
+// Under any required field: server error first (authoritative), otherwise
+// — once the admin has tried to save — a plain "X is required." the
+// moment that field is still empty.
+function fieldErrorMessage(path) {
+    if (form.errors[path]) return form.errors[path];
+    if (!attemptedSubmit.value) return null;
+    if (!isRequiredField(path)) return null;
+    return isEmptyValue(getByPath(path)) ? `${fieldLabel(path)} is required.` : null;
+}
+
+const typeRequiredMessages = computed(() => {
+    if (!attemptedSubmit.value) return [];
+    return requiredFieldsForType.value
+        .filter((path) => isEmptyValue(getByPath(path)) && !form.errors[path])
+        .map((path) => `${fieldLabel(path)} is required.`);
+});
+
+function onChurchConflictChange({ conflict, blocked, overrideReason, suggestions, venue }) {
     churchConflict.value = conflict;
     churchBlocked.value = blocked;
+    churchSuggestions.value = suggestions || [];
+    churchVenue.value = venue || null;
     form.override_conflict = !!(conflict || blocked) && !!overrideReason;
     form.override_reason = overrideReason || '';
 }
@@ -734,9 +937,64 @@ function onSelectSuggestedSlot(suggestion) {
         form.event_date = suggestion.date;
     }
     form.event_time = suggestion.time;
+    // Picking a suggestion resolves the failed save — dismiss the banner
+    // immediately instead of leaving it up until the next submit attempt.
+    saveFailureDismissed.value = true;
 }
 
+// ---- Save-failure banner ----
+// Field-level errors (see the field-error <p> tags throughout this form)
+// are easy to miss — they're small, sit under whatever field they belong
+// to, and the Event Time field they matter most for is easy to have
+// scrolled past by the time the response comes back. These are exactly
+// the fields StoreReservationRequest::checkChurchAvailability() and
+// checkSchedulingConflict() attach a scheduling-conflict message to
+// (see app/Http/Requests/StoreReservationRequest.php) — every one of
+// those messages already explains *why* in plain language (which
+// reservation/Mass it collided with, and the exact overlapping time), so
+// the banner just needs to surface them somewhere the admin can't miss.
+const CONFLICT_ERROR_FIELDS = ['event_date', 'event_time', 'location_id', 'priest_id', 'linked_mass_reservation_id'];
+const saveFailureDismissed = ref(false);
+const saveFailureBannerRef = ref(null);
+
+const conflictErrorMessages = computed(() => {
+    return CONFLICT_ERROR_FIELDS
+        .map((field) => form.errors[field])
+        .filter(Boolean);
+});
+
+// Every message the banner shows: required-field problems first (the admin
+// can fix these instantly, client-side, without waiting on the server),
+// then whatever the server itself rejected the submission for.
+const allBannerMessages = computed(() => [...requiredFieldMessages.value, ...conflictErrorMessages.value]);
+
+// True only while there's an unresolved batch of errors from the MOST
+// RECENT submit attempt (or, for required fields, from leaving one blank).
+// Editing any scheduling field (date, time, priest, location, or the Mass
+// link) clears it immediately, same as Inertia already clears the
+// underlying field errors on change — the banner shouldn't linger and
+// imply the admin's current picks are still the ones that failed.
+const showSaveFailureBanner = computed(() => allBannerMessages.value.length > 0 && !saveFailureDismissed.value);
+
+watch(
+    () => [form.event_date, form.event_time, form.priest_id, form.location_id, form.linked_mass_reservation_id, form.contact_name, form.contact_mobile],
+    () => { saveFailureDismissed.value = true; }
+);
+
 function submit() {
+    saveFailureDismissed.value = false;
+    attemptedSubmit.value = true;
+
+    // Don't even round-trip to the server for a blank Contact Person /
+    // Mobile Number — catch it immediately, client-side, and point at the
+    // banner + the two fields themselves.
+    if (requiredFieldMessages.value.length) {
+        nextTick(() => {
+            saveFailureBannerRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        return;
+    }
+
     // The backend stores Pamisa sa Kalag deceased names as a single
     // newline-delimited string (details.names => ['required', 'string']),
     // while the UI keeps them as an array of rows for editing. Convert
@@ -758,10 +1016,31 @@ function submit() {
         return data;
     });
 
+    const options = {
+        onError: (errors) => {
+            // A rejected save is silent otherwise — Inertia just repopulates
+            // form.errors and leaves the admin wherever they were scrolled
+            // to, which on a long form like this is very likely NOT next to
+            // the Event Time field the conflict message landed on. Make it
+            // obvious: expand the Church Availability panel (so its
+            // suggestions are visible even if the admin never opened it),
+            // force it to re-check against the server's verdict, then
+            // scroll the banner into view.
+            if (CONFLICT_ERROR_FIELDS.some((field) => errors[field])) {
+                availabilityPanelRef.value?.expand();
+                availabilityPanelRef.value?.refresh();
+
+                nextTick(() => {
+                    saveFailureBannerRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            }
+        },
+    };
+
     if (isEdit.value) {
-        submitForm.put(route('reservations.update', props.reservation.id));
+        submitForm.put(route('reservations.update', props.reservation.id), options);
     } else {
-        submitForm.post(route('reservations.store'));
+        submitForm.post(route('reservations.store'), options);
     }
 }
 
@@ -923,6 +1202,71 @@ const massScheduleRequiredButMissing = computed(() => {
 <template>
     <form @submit.prevent="submit" class="space-y-8">
 
+        <!-- Save-failure banner: appears the moment a submit is rejected for a
+             scheduling reason (overlap, blocked date, priest/chapel/venue
+             double-booking, or a full/cancelled linked Mass) so the admin
+             never has to go hunting for a small inline message under a
+             field they may have already scrolled past. Every message here
+             comes straight from StoreReservationRequest's own conflict
+             checks, so it always names exactly what it collided with. -->
+        <div
+            v-if="showSaveFailureBanner"
+            ref="saveFailureBannerRef"
+            class="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm dark:border-red-500/30 dark:bg-red-500/10"
+        >
+            <svg class="mt-0.5 h-5 w-5 shrink-0 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <div class="min-w-0 flex-1">
+                <p class="font-serif text-base font-semibold text-red-700 dark:text-red-300">
+                    <template v-if="requiredFieldMessages.length && conflictErrorMessages.length">
+                        This reservation wasn't saved — some required fields are missing and a scheduling conflict was found
+                    </template>
+                    <template v-else-if="requiredFieldMessages.length">
+                        This reservation wasn't saved — {{ requiredFieldMessages.length > 1 ? 'a few required fields are missing' : 'a required field is missing' }}
+                    </template>
+                    <template v-else>
+                        This reservation wasn't saved — {{ conflictErrorMessages.length > 1 ? 'a few scheduling conflicts were found' : 'a scheduling conflict was found' }}
+                    </template>
+                </p>
+                <ul class="mt-2 space-y-1 text-sm text-red-700 dark:text-red-300">
+                    <li v-for="(message, i) in allBannerMessages" :key="i" class="flex gap-1.5">
+                        <span>•</span>
+                        <span>{{ message }}</span>
+                    </li>
+                </ul>
+
+                <div v-if="churchSuggestions.length" class="mt-3">
+                    <p class="text-xs font-medium uppercase tracking-wide text-red-700/70 dark:text-red-300/70">Try one of these open times instead</p>
+                    <div class="mt-1.5 flex flex-wrap gap-2">
+                        <button
+                            v-for="(s, i) in churchSuggestions"
+                            :key="i"
+                            type="button"
+                            class="rounded-lg border border-[#8CA089]/60 bg-white px-3 py-1.5 text-xs font-medium text-[#3f6470] transition hover:bg-[#8CA089]/15 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200"
+                            @click="onSelectSuggestedSlot(s)"
+                        >
+                            ✓ {{ s.label }}
+                        </button>
+                    </div>
+                </div>
+
+                <p class="mt-3 text-xs text-red-700/70 dark:text-red-300/70">
+                    Pick a different date/time above, or scroll down to Church Availability to review — an administrator can override a conflict there with a reason instead.
+                </p>
+            </div>
+            <button
+                type="button"
+                class="shrink-0 rounded-full p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20"
+                @click="saveFailureDismissed = true"
+                aria-label="Dismiss"
+            >
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 6L6 18M6 6l12 12" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+        </div>
+
         <!-- Event type selector -->
         <div class="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
             <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-white">Event Type</h3>
@@ -967,15 +1311,33 @@ const massScheduleRequiredButMissing = computed(() => {
 
             <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
-                    <label class="field-label">Contact Person</label>
-                    <input v-model="form.contact_name" v-uppercase type="text" class="field-input" placeholder="Full name" />
-                    <p v-if="form.errors.contact_name" class="field-error">{{ form.errors.contact_name }}</p>
+                    <label class="field-label">Contact Person <span class="text-red-500">*</span></label>
+                    <input
+                        v-model="form.contact_name"
+                        v-uppercase
+                        type="text"
+                        class="field-input"
+                        :class="{ '!border-red-400 focus:!ring-red-300': contactNameError }"
+                        placeholder="Full name"
+                        @blur="touchedContactName = true"
+                    />
+                    <p v-if="contactNameError" class="field-error">{{ contactNameError }}</p>
                 </div>
 
                 <div>
-                    <label class="field-label">Mobile Number</label>
-                    <input v-model="form.contact_mobile" type="text" class="field-input" placeholder="09XX XXX XXXX" />
-                    <p v-if="form.errors.contact_mobile" class="field-error">{{ form.errors.contact_mobile }}</p>
+                    <label class="field-label">Mobile Number <span class="text-red-500">*</span></label>
+                    <input
+                        :value="form.contact_mobile"
+                        type="text"
+                        inputmode="numeric"
+                        maxlength="13"
+                        class="field-input"
+                        :class="{ '!border-red-400 focus:!ring-red-300': contactMobileError }"
+                        placeholder="09XX XXX XXXX"
+                        @input="onContactMobileInput"
+                        @blur="touchedContactMobile = true"
+                    />
+                    <p v-if="contactMobileError" class="field-error">{{ contactMobileError }}</p>
                 </div>
 
                 <div>
@@ -986,9 +1348,9 @@ const massScheduleRequiredButMissing = computed(() => {
                 </div>
 
                 <div class="sm:col-span-2">
-                    <label class="field-label">Address</label>
-                    <input v-model="form.contact_address" v-uppercase type="text" class="field-input" placeholder="Street, Barangay, City" />
-                    <p v-if="form.errors.contact_address" class="field-error">{{ form.errors.contact_address }}</p>
+                    <label class="field-label">Address <span v-if="isRequiredField('contact_address')" class="text-red-500">*</span></label>
+                    <input v-model="form.contact_address" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('contact_address') }" placeholder="Street, Barangay, City" />
+                    <p v-if="fieldErrorMessage('contact_address')" class="field-error">{{ fieldErrorMessage('contact_address') }}</p>
                 </div>
             </div>
         </div>
@@ -1022,19 +1384,19 @@ const massScheduleRequiredButMissing = computed(() => {
             <!-- Wedding -->
             <div v-if="form.type === 'wedding'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
-                    <label class="field-label">Groom's Full Name</label>
-                    <input v-model="form.details.groom_name" v-uppercase type="text" class="field-input" />
-                    <p v-if="form.errors['details.groom_name']" class="field-error">{{ form.errors['details.groom_name'] }}</p>
+                    <label class="field-label">Groom's Full Name <span class="text-red-500">*</span></label>
+                    <input v-model="form.details.groom_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.groom_name') }" />
+                    <p v-if="fieldErrorMessage('details.groom_name')" class="field-error">{{ fieldErrorMessage('details.groom_name') }}</p>
                 </div>
                 <div>
-                    <label class="field-label">Bride's Full Name</label>
-                    <input v-model="form.details.bride_name" v-uppercase type="text" class="field-input" />
-                    <p v-if="form.errors['details.bride_name']" class="field-error">{{ form.errors['details.bride_name'] }}</p>
+                    <label class="field-label">Bride's Full Name <span class="text-red-500">*</span></label>
+                    <input v-model="form.details.bride_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.bride_name') }" />
+                    <p v-if="fieldErrorMessage('details.bride_name')" class="field-error">{{ fieldErrorMessage('details.bride_name') }}</p>
                 </div>
 
                 <div class="sm:col-span-2">
                     <label class="field-label inline-flex items-center gap-1.5">
-                        Ceremony Type
+                        Ceremony Type <span class="text-red-500">*</span>
                         <span class="group/tooltip relative inline-flex">
                             <button
                                 type="button"
@@ -1087,7 +1449,7 @@ const massScheduleRequiredButMissing = computed(() => {
                             </span>
                         </label>
                     </div>
-                    <p v-if="form.errors['details.ceremony_type']" class="field-error">{{ form.errors['details.ceremony_type'] }}</p>
+                    <p v-if="fieldErrorMessage('details.ceremony_type')" class="field-error">{{ fieldErrorMessage('details.ceremony_type') }}</p>
                 </div>
 
                 <div class="sm:col-span-2">
@@ -1108,7 +1470,7 @@ const massScheduleRequiredButMissing = computed(() => {
             <!-- Baptism -->
             <div v-else-if="form.type === 'baptism'" class="mt-5 space-y-5">
                 <div>
-                    <label class="field-label">Baptism Type</label>
+                    <label class="field-label">Baptism Type <span class="text-red-500">*</span></label>
                     <div class="mt-1.5 flex flex-col gap-2 sm:flex-row sm:gap-3">
                         <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
                             <input v-model="form.details.baptism_type" type="radio" value="individual" class="mt-0.5" />
@@ -1125,26 +1487,26 @@ const massScheduleRequiredButMissing = computed(() => {
                             </span>
                         </label>
                     </div>
-                    <p v-if="form.errors['details.baptism_type']" class="field-error">{{ form.errors['details.baptism_type'] }}</p>
+                    <p v-if="fieldErrorMessage('details.baptism_type')" class="field-error">{{ fieldErrorMessage('details.baptism_type') }}</p>
                 </div>
 
                 <!-- Individual / Private: one child, one shared godparent list -->
                 <template v-if="form.details.baptism_type === 'individual'">
                     <div class="grid grid-cols-1 gap-5 sm:grid-cols-3">
                         <div>
-                            <label class="field-label">Child's Name</label>
-                            <input v-model="form.details.child_name" v-uppercase type="text" class="field-input" />
-                            <p v-if="form.errors['details.child_name']" class="field-error">{{ form.errors['details.child_name'] }}</p>
+                            <label class="field-label">Child's Name <span class="text-red-500">*</span></label>
+                            <input v-model="form.details.child_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.child_name') }" />
+                            <p v-if="fieldErrorMessage('details.child_name')" class="field-error">{{ fieldErrorMessage('details.child_name') }}</p>
                         </div>
                         <div>
-                            <label class="field-label">Father's Name</label>
-                            <input v-model="form.details.father_name" v-uppercase type="text" class="field-input" />
-                            <p v-if="form.errors['details.father_name']" class="field-error">{{ form.errors['details.father_name'] }}</p>
+                            <label class="field-label">Father's Name <span class="text-red-500">*</span></label>
+                            <input v-model="form.details.father_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.father_name') }" />
+                            <p v-if="fieldErrorMessage('details.father_name')" class="field-error">{{ fieldErrorMessage('details.father_name') }}</p>
                         </div>
                         <div>
-                            <label class="field-label">Mother's Maiden Name</label>
-                            <input v-model="form.details.mother_maiden_name" v-uppercase type="text" class="field-input" />
-                            <p v-if="form.errors['details.mother_maiden_name']" class="field-error">{{ form.errors['details.mother_maiden_name'] }}</p>
+                            <label class="field-label">Mother's Maiden Name <span class="text-red-500">*</span></label>
+                            <input v-model="form.details.mother_maiden_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.mother_maiden_name') }" />
+                            <p v-if="fieldErrorMessage('details.mother_maiden_name')" class="field-error">{{ fieldErrorMessage('details.mother_maiden_name') }}</p>
                         </div>
                     </div>
 
@@ -1233,9 +1595,9 @@ const massScheduleRequiredButMissing = computed(() => {
             <!-- Burial -->
             <div v-else-if="form.type === 'burial'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div class="sm:col-span-2">
-                    <label class="field-label">Deceased Person's Name</label>
-                    <input v-model="form.details.deceased_name" v-uppercase type="text" class="field-input" />
-                    <p v-if="form.errors['details.deceased_name']" class="field-error">{{ form.errors['details.deceased_name'] }}</p>
+                    <label class="field-label">Deceased Person's Name <span class="text-red-500">*</span></label>
+                    <input v-model="form.details.deceased_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.deceased_name') }" />
+                    <p v-if="fieldErrorMessage('details.deceased_name')" class="field-error">{{ fieldErrorMessage('details.deceased_name') }}</p>
                 </div>
                 <div>
                     <label class="field-label">Age</label>
@@ -1248,7 +1610,7 @@ const massScheduleRequiredButMissing = computed(() => {
                 </div>
 
                 <div class="sm:col-span-2">
-                    <label class="field-label">Service Type</label>
+                    <label class="field-label">Service Type <span class="text-red-500">*</span></label>
                     <div class="mt-1.5 flex flex-col gap-2 sm:flex-row sm:gap-3">
                         <label class="flex flex-1 items-start gap-2 rounded-xl border border-[#3f6470]/15 bg-white/70 p-3 text-sm text-[#2f4a4a] dark:border-white/10 dark:bg-slate-700/50 dark:text-slate-100">
                             <input v-model="form.details.service_type" type="radio" value="funeral_mass" class="mt-0.5" />
@@ -1258,7 +1620,7 @@ const massScheduleRequiredButMissing = computed(() => {
                             </span>
                         </label>
                     </div>
-                    <p v-if="form.errors['details.service_type']" class="field-error">{{ form.errors['details.service_type'] }}</p>
+                    <p v-if="fieldErrorMessage('details.service_type')" class="field-error">{{ fieldErrorMessage('details.service_type') }}</p>
                 </div>
 
                 <div class="sm:col-span-2">
@@ -1270,7 +1632,7 @@ const massScheduleRequiredButMissing = computed(() => {
             <!-- First Communion -->
             <div v-else-if="form.type === 'first_communion'" class="mt-5">
                 <div class="sm:col-span-2">
-                    <label class="field-label">Booking Type</label>
+                    <label class="field-label">Booking Type <span class="text-red-500">*</span></label>
                     <div class="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <label
                             class="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-sm text-[#2f4a4a] dark:text-slate-100"
@@ -1293,15 +1655,15 @@ const massScheduleRequiredButMissing = computed(() => {
                             </span>
                         </label>
                     </div>
-                    <p v-if="form.errors['details.booking_mode']" class="field-error">{{ form.errors['details.booking_mode'] }}</p>
+                    <p v-if="fieldErrorMessage('details.booking_mode')" class="field-error">{{ fieldErrorMessage('details.booking_mode') }}</p>
                 </div>
 
                 <!-- Individual / Parish Class -->
                 <div v-if="form.details.booking_mode === 'individual'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
-                        <label class="field-label">Child's Full Name</label>
-                        <input v-model="form.details.child_name" v-uppercase type="text" class="field-input" />
-                        <p v-if="form.errors['details.child_name']" class="field-error">{{ form.errors['details.child_name'] }}</p>
+                        <label class="field-label">Child's Full Name <span class="text-red-500">*</span></label>
+                        <input v-model="form.details.child_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.child_name') }" />
+                        <p v-if="fieldErrorMessage('details.child_name')" class="field-error">{{ fieldErrorMessage('details.child_name') }}</p>
                     </div>
                     <div>
                         <label class="field-label">Parent / Guardian Name</label>
@@ -1318,14 +1680,14 @@ const massScheduleRequiredButMissing = computed(() => {
                 <div v-else class="mt-5 space-y-6">
                     <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
                         <div>
-                            <label class="field-label">School Name</label>
-                            <input v-model="form.details.school_name" v-uppercase type="text" class="field-input" />
-                            <p v-if="form.errors['details.school_name']" class="field-error">{{ form.errors['details.school_name'] }}</p>
+                            <label class="field-label">School Name <span class="text-red-500">*</span></label>
+                            <input v-model="form.details.school_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.school_name') }" />
+                            <p v-if="fieldErrorMessage('details.school_name')" class="field-error">{{ fieldErrorMessage('details.school_name') }}</p>
                         </div>
                         <div>
-                            <label class="field-label">Expected Number of Students</label>
-                            <input v-model.number="form.details.communicant_count" type="number" min="1" class="field-input" placeholder="e.g. 75" />
-                            <p v-if="form.errors['details.communicant_count']" class="field-error">{{ form.errors['details.communicant_count'] }}</p>
+                            <label class="field-label">Expected Number of Students <span class="text-red-500">*</span></label>
+                            <input v-model.number="form.details.communicant_count" type="number" min="1" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.communicant_count') }" placeholder="e.g. 75" />
+                            <p v-if="fieldErrorMessage('details.communicant_count')" class="field-error">{{ fieldErrorMessage('details.communicant_count') }}</p>
                             <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">So the parish knows how many hosts and seats to prepare.</p>
                         </div>
                     </div>
@@ -1392,9 +1754,9 @@ const massScheduleRequiredButMissing = computed(() => {
             <!-- Confirmation -->
             <div v-else-if="form.type === 'confirmation'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
-                    <label class="field-label">Confirmand's Name</label>
-                    <input v-model="form.details.confirmand_name" v-uppercase type="text" class="field-input" />
-                    <p v-if="form.errors['details.confirmand_name']" class="field-error">{{ form.errors['details.confirmand_name'] }}</p>
+                    <label class="field-label">Confirmand's Name <span class="text-red-500">*</span></label>
+                    <input v-model="form.details.confirmand_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.confirmand_name') }" />
+                    <p v-if="fieldErrorMessage('details.confirmand_name')" class="field-error">{{ fieldErrorMessage('details.confirmand_name') }}</p>
                 </div>
                 <div>
                     <label class="field-label">Confirmation Name (Saint's Name)</label>
@@ -1410,8 +1772,8 @@ const massScheduleRequiredButMissing = computed(() => {
             <div v-else-if="form.type === 'pamisa_sa_kalag'" class="mt-5 space-y-6">
                 <!-- Names of the Deceased -->
                 <div class="rounded-xl border border-[#3f6470]/15 bg-white/70 p-4 dark:border-white/10 dark:bg-slate-700/40">
-                    <label class="field-label">Names of the Deceased</label>
-                    <p v-if="form.errors['details.names']" class="field-error">{{ form.errors['details.names'] }}</p>
+                    <label class="field-label">Names of the Deceased <span class="text-red-500">*</span></label>
+                    <p v-if="fieldErrorMessage('details.names')" class="field-error">{{ fieldErrorMessage('details.names') }}</p>
                     <div class="mt-2 space-y-2">
                         <div v-for="(name, i) in form.details.names" :key="i" class="flex items-center gap-2">
                             <span class="w-7 shrink-0 text-xs text-[#3f6470]/50 dark:text-slate-500">{{ i + 1 }}.</span>
@@ -1470,7 +1832,7 @@ const massScheduleRequiredButMissing = computed(() => {
                         <p v-if="form.errors.event_date" class="field-error">{{ form.errors.event_date }}</p>
                     </div>
 
-                    <p v-if="form.errors.linked_mass_reservation_id" class="field-error mt-2">{{ form.errors.linked_mass_reservation_id }}</p>
+                    <p v-if="fieldErrorMessage('linked_mass_reservation_id')" class="field-error mt-2">{{ fieldErrorMessage('linked_mass_reservation_id') }}</p>
 
                     <!-- Loading -->
                     <p v-if="loadingMassSchedules" class="mt-4 text-sm text-[#3f6470]/60 dark:text-slate-400">Loading Mass schedules…</p>
@@ -1598,14 +1960,14 @@ const massScheduleRequiredButMissing = computed(() => {
             <!-- School Mass -->
             <div v-else-if="form.type === 'school_mass'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
-                    <label class="field-label">School Name</label>
-                    <input v-model="form.details.school_name" v-uppercase type="text" class="field-input" />
-                    <p v-if="form.errors['details.school_name']" class="field-error">{{ form.errors['details.school_name'] }}</p>
+                    <label class="field-label">School Name <span class="text-red-500">*</span></label>
+                    <input v-model="form.details.school_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.school_name') }" />
+                    <p v-if="fieldErrorMessage('details.school_name')" class="field-error">{{ fieldErrorMessage('details.school_name') }}</p>
                 </div>
                 <div>
-                    <label class="field-label">Contact Person</label>
-                    <input v-model="form.details.school_contact_person" v-uppercase type="text" class="field-input" />
-                    <p v-if="form.errors['details.school_contact_person']" class="field-error">{{ form.errors['details.school_contact_person'] }}</p>
+                    <label class="field-label">Contact Person <span class="text-red-500">*</span></label>
+                    <input v-model="form.details.school_contact_person" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.school_contact_person') }" />
+                    <p v-if="fieldErrorMessage('details.school_contact_person')" class="field-error">{{ fieldErrorMessage('details.school_contact_person') }}</p>
                 </div>
                 <div>
                     <label class="field-label">Occasion</label>
@@ -1619,12 +1981,12 @@ const massScheduleRequiredButMissing = computed(() => {
                     <p v-if="form.errors['details.occasion']" class="field-error">{{ form.errors['details.occasion'] }}</p>
                 </div>
                 <div>
-                    <label class="field-label">Venue</label>
-                    <select v-model="form.details.venue" class="field-input">
+                    <label class="field-label">Venue <span class="text-red-500">*</span></label>
+                    <select v-model="form.details.venue" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.venue') }">
                         <option value="on_campus">On Campus (gym/auditorium)</option>
                         <option value="church">At the Church</option>
                     </select>
-                    <p v-if="form.errors['details.venue']" class="field-error">{{ form.errors['details.venue'] }}</p>
+                    <p v-if="fieldErrorMessage('details.venue')" class="field-error">{{ fieldErrorMessage('details.venue') }}</p>
                     <p v-if="form.details.venue === 'on_campus'" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
                         School to set up a temporary altar, crucifix, candles, sound system, and chairs.
                     </p>
@@ -1648,9 +2010,9 @@ const massScheduleRequiredButMissing = computed(() => {
 
             <!-- Chapel Mass -->
             <div v-else-if="form.type === 'chapel_mass'" class="mt-5">
-                <label class="field-label">Kapilya / Barangay</label>
-                <input v-model="form.details.chapel" v-uppercase type="text" class="field-input" placeholder="Enter chapel or barangay name" />
-                <p v-if="form.errors['details.chapel']" class="field-error">{{ form.errors['details.chapel'] }}</p>
+                <label class="field-label">Kapilya / Barangay <span class="text-red-500">*</span></label>
+                <input v-model="form.details.chapel" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.chapel') }" placeholder="Enter chapel or barangay name" />
+                <p v-if="fieldErrorMessage('details.chapel')" class="field-error">{{ fieldErrorMessage('details.chapel') }}</p>
             </div>
 
             <!-- House Blessing -->
@@ -1671,9 +2033,9 @@ const massScheduleRequiredButMissing = computed(() => {
             <!-- Business / Office Blessing -->
             <div v-else-if="form.type === 'business_blessing'" class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div class="sm:col-span-2">
-                    <label class="field-label">Business / Office Name</label>
-                    <input v-model="form.details.business_name" v-uppercase type="text" class="field-input" />
-                    <p v-if="form.errors['details.business_name']" class="field-error">{{ form.errors['details.business_name'] }}</p>
+                    <label class="field-label">Business / Office Name <span class="text-red-500">*</span></label>
+                    <input v-model="form.details.business_name" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.business_name') }" />
+                    <p v-if="fieldErrorMessage('details.business_name')" class="field-error">{{ fieldErrorMessage('details.business_name') }}</p>
                 </div>
                 <div class="sm:col-span-2">
                     <label class="flex items-center gap-2 text-sm text-[#2f4a4a] dark:text-slate-200">
@@ -1686,9 +2048,9 @@ const massScheduleRequiredButMissing = computed(() => {
 
             <!-- Vehicle / Article Blessing -->
             <div v-else-if="form.type === 'vehicle_blessing'" class="mt-5">
-                <label class="field-label">Vehicle / Article Description</label>
-                <input v-model="form.details.item_description" v-uppercase type="text" class="field-input" placeholder="e.g. 2019 Toyota Vios, plate ABC 1234" />
-                <p v-if="form.errors['details.item_description']" class="field-error">{{ form.errors['details.item_description'] }}</p>
+                <label class="field-label">Vehicle / Article Description <span class="text-red-500">*</span></label>
+                <input v-model="form.details.item_description" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.item_description') }" placeholder="e.g. 2019 Toyota Vios, plate ABC 1234" />
+                <p v-if="fieldErrorMessage('details.item_description')" class="field-error">{{ fieldErrorMessage('details.item_description') }}</p>
                 <p class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">Bring the item to the church courtyard at the date/time above. Usually takes just 5-10 minutes.</p>
             </div>
 
@@ -1699,9 +2061,9 @@ const massScheduleRequiredButMissing = computed(() => {
                     This is an emergency
                 </label>
                 <div>
-                    <label class="field-label">Hospital Room / Home Address</label>
-                    <input v-model="form.details.patient_location" v-uppercase type="text" class="field-input" />
-                    <p v-if="form.errors['details.patient_location']" class="field-error">{{ form.errors['details.patient_location'] }}</p>
+                    <label class="field-label">Hospital Room / Home Address <span class="text-red-500">*</span></label>
+                    <input v-model="form.details.patient_location" v-uppercase type="text" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.patient_location') }" />
+                    <p v-if="fieldErrorMessage('details.patient_location')" class="field-error">{{ fieldErrorMessage('details.patient_location') }}</p>
                 </div>
                 <p v-if="form.details.is_emergency" class="text-xs font-medium text-red-600 dark:text-red-400">
                     For a true emergency, please also call the parish office directly rather than relying on this form alone.
@@ -1716,9 +2078,9 @@ const massScheduleRequiredButMissing = computed(() => {
 
             <!-- Special Intention / Petition -->
             <div v-else-if="form.type === 'special_intention'" class="mt-5">
-                <label class="field-label">Intention / Petition</label>
-                <textarea v-model="form.details.intention" rows="4" class="field-input" placeholder="What would you like the Mass or prayer offered for?"></textarea>
-                <p v-if="form.errors['details.intention']" class="field-error">{{ form.errors['details.intention'] }}</p>
+                <label class="field-label">Intention / Petition <span class="text-red-500">*</span></label>
+                <textarea v-model="form.details.intention" rows="4" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('details.intention') }" placeholder="What would you like the Mass or prayer offered for?"></textarea>
+                <p v-if="fieldErrorMessage('details.intention')" class="field-error">{{ fieldErrorMessage('details.intention') }}</p>
             </div>
 
             <!-- Others: no Main Church/Chapel/School fits, so the location
@@ -1745,17 +2107,17 @@ const massScheduleRequiredButMissing = computed(() => {
 
                 <div class="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
-                        <label class="field-label">Event Date</label>
-                        <input v-model="form.event_date" type="date" class="field-input" :min="isEdit ? undefined : todayStr" />
-                        <p v-if="form.errors.event_date" class="field-error">{{ form.errors.event_date }}</p>
+                        <label class="field-label">Event Date <span class="text-red-500">*</span></label>
+                        <input v-model="form.event_date" type="date" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('event_date') }" :min="isEdit ? undefined : todayStr" />
+                        <p v-if="fieldErrorMessage('event_date')" class="field-error">{{ fieldErrorMessage('event_date') }}</p>
                     </div>
 
                     <div>
                         <label class="field-label">
-                            Event Time
+                            Event Time <span class="text-red-500">*</span>
                             <span v-if="loadingEventTimes" class="ml-1 normal-case text-[#3f6470]/40 dark:text-slate-500">(loading available times…)</span>
                         </label>
-                        <select v-model="form.event_time" class="field-input" :disabled="!form.event_date || loadingEventTimes">
+                        <select v-model="form.event_time" class="field-input" :class="{ '!border-red-400 focus:!ring-red-300': fieldErrorMessage('event_time') }" :disabled="!form.event_date || loadingEventTimes">
                             <option value="">
                                 {{ !form.event_date ? 'Select an Event Date first' : (availableEventTimes.length ? 'Select an available time' : 'No available times for this date') }}
                             </option>
@@ -1763,7 +2125,7 @@ const massScheduleRequiredButMissing = computed(() => {
                                 {{ formatEventTimeOption(slot) }}
                             </option>
                         </select>
-                        <p v-if="form.errors.event_time" class="field-error">{{ form.errors.event_time }}</p>
+                        <p v-if="fieldErrorMessage('event_time')" class="field-error">{{ fieldErrorMessage('event_time') }}</p>
                         <p v-else-if="conflictWarning" class="mt-1.5 flex items-start gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
                             <svg class="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z" stroke-linecap="round" stroke-linejoin="round" />
@@ -1789,6 +2151,7 @@ const massScheduleRequiredButMissing = computed(() => {
 
                     <div class="sm:col-span-2">
                         <ChurchAvailabilityPanel
+                            ref="availabilityPanelRef"
                             :date="form.event_date"
                             :time="form.event_time"
                             :type="form.type"

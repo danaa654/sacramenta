@@ -35,6 +35,18 @@ const props = defineProps({
     },
 });
 
+// A reservation can't be marked Completed until its event date has
+// actually happened. This is a UI convenience only; the real boundary is
+// enforced server-side in ReservationController::futureDateBlocker().
+const isEventInFuture = computed(() => {
+    if (!props.reservation.event_date) return false;
+    const eventDate = new Date(props.reservation.event_date);
+    eventDate.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return eventDate > today;
+});
+
 const backHref = computed(() => props.from || route('reservations.index'));
 
 const backLabel = computed(() => {
@@ -273,6 +285,23 @@ const requirementGroups = computed(() => {
 });
 
 function saveChecklist() {
+    // The checkbox only ever toggles the legacy `is_completed` boolean,
+    // but confirmation eligibility (allRequirementsComplete, and
+    // Reservation::requirementsComplete on the backend) is keyed off the
+    // `status` column instead — and status is never auto-derived FROM
+    // is_completed (only the other way around, see ReservationRequirement's
+    // saving() hook). Without this, checking the box and saving would
+    // silently leave status at its old value (e.g. 'pending'), so
+    // "Confirm Reservation" would stay disabled even though the checklist
+    // looks complete on screen.
+    checklistForm.transform((data) => ({
+        ...data,
+        items: data.items.map((item) => ({
+            ...item,
+            status: item.is_completed ? 'completed' : 'pending',
+        })),
+    }));
+
     checklistForm.patch(route('reservations.requirements.update', props.reservation.id), {
         preserveScroll: true,
     });
@@ -845,12 +874,20 @@ function submitCorrection() {
                                     :disabled="reservation.status === 'completed' || !isAdminTier"
                                     class="field-input mt-1.5 capitalize disabled:cursor-not-allowed disabled:bg-[#3f6470]/5 disabled:text-[#3f6470]/50 dark:text-slate-300"
                                 >
-                                    <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
+                                    <option
+                                        v-for="opt in statusOptions"
+                                        :key="opt.value"
+                                        :value="opt.value"
+                                        :disabled="opt.value === 'completed' && isEventInFuture"
+                                    >
                                         {{ opt.label }}
                                     </option>
                                 </select>
                                 <p v-if="reservation.status === 'completed'" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-300">
                                     Already completed — use Archive Reservation below to file it, rather than reopening the status.
+                                </p>
+                                <p v-else-if="isEventInFuture" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-300">
+                                    Can't mark as Completed yet — the event date hasn't happened.
                                 </p>
                                 <p v-else-if="!isAdminTier" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-300">
                                     Only an Administrator or Super Admin can confirm or cancel a reservation.

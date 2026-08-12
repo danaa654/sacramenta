@@ -14,13 +14,24 @@ use Illuminate\Database\Eloquent\Builder;
  * ReservationController::updateStatus (on draft -> confirmed), and the
  * availability endpoint (for live UI warnings).
  *
- * Conflicts are only checked against CONFIRMED reservations — drafts are
- * allowed to overlap each other (parishes often hold multiple tentative
- * requests for the same slot before one is finalized), but the moment
- * something is confirmed, it becomes authoritative and blocks the rest.
+ * Conflicts are checked against every reservation that still legitimately
+ * holds its slot — draft, confirmed, or completed — NOT just confirmed
+ * ones. Two drafts (e.g. a Wedding and a Burial both provisionally booked
+ * for the same date/time) now block each other the same way a confirmed
+ * reservation would, so staff can't accidentally save an overlapping
+ * schedule and only discover it later at confirm time. 'archived' is
+ * this app's cancel state for a reservation (see ReservationPolicy), so
+ * an archived/cancelled reservation never holds its old slot and is
+ * correctly excluded here. Mirrors
+ * App\Services\ChurchAvailabilityService::BLOCKING_STATUSES — the two
+ * lists must stay in sync, since they check the same underlying
+ * "does this slot still belong to something" question from two call
+ * sites (whole-church venue vs. a specific priest/location/chapel).
  */
 class SchedulingConflictService
 {
+    public const BLOCKING_STATUSES = ['draft', 'confirmed', 'completed'];
+
     public function durationFor(?string $type, array $details = []): int
     {
         return \App\Support\ReservationDuration::minutes($type, $details);
@@ -215,7 +226,7 @@ class SchedulingConflictService
             foreach ($priestIds as $priestId) {
                 $reservationConflict = Reservation::query()
                     ->where('priest_id', $priestId)
-                    ->where('status', 'confirmed')
+                    ->whereIn('status', self::BLOCKING_STATUSES)
                     ->whereDate('event_date', $date)
                     ->whereNotNull('event_time')
                     ->get()
@@ -361,7 +372,7 @@ class SchedulingConflictService
         $massId = $details['linked_mass_reservation_id'] ?? null;
 
         return $query
-            ->where('status', 'confirmed')
+            ->whereIn('status', self::BLOCKING_STATUSES)
             ->whereDate('event_date', $date)
             ->whereNotNull('event_time')
             ->when($excludeId, fn ($q) => $q->where('id', '!=', $excludeId))

@@ -25,6 +25,7 @@ const props = defineProps({
             year: { offerings: 0, collected: 0, outstanding: 0, series: [] },
         }),
     },
+    unresolvedConflicts: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -315,6 +316,53 @@ const sparkline = computed(() => {
                                 </svg>
                             </span>
                         </button>
+                    </div>
+                </div>
+
+                <!-- Unresolved Conflicts — upcoming reservations still
+                     double-booked into the same venue/time (either a
+                     deliberate admin override, or a pre-existing overlap
+                     the current Draft-vs-Draft check hasn't caught yet).
+                     Surfaced here so staff resolve it well before either
+                     event's date, instead of discovering it at confirm
+                     time. See ChurchAvailabilityService::upcomingConflicts(). -->
+                <div v-if="unresolvedConflicts.length" class="rounded-2xl border border-[#C0563B]/30 bg-[#C0563B]/5 p-5 shadow-sm dark:border-[#C0563B]/40 dark:bg-[#C0563B]/10">
+                    <div class="flex items-center gap-2 text-[#8a3423] dark:text-[#e2a190]">
+                        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        <h3 class="text-sm font-semibold uppercase tracking-wide">
+                            Unresolved Conflicts ({{ unresolvedConflicts.length }})
+                        </h3>
+                    </div>
+                    <p class="mt-1 text-xs text-[#8a3423]/80 dark:text-[#e2a190]/80">
+                        These reservations are still booked into the same venue at an overlapping time. Reschedule one, or confirm the correct one — the other will now be blocked from confirming at this slot.
+                    </p>
+
+                    <div class="mt-3 space-y-2">
+                        <div
+                            v-for="(conflict, idx) in unresolvedConflicts"
+                            :key="idx"
+                            class="rounded-xl border border-[#C0563B]/20 bg-white/70 px-4 py-3 text-sm dark:border-white/10 dark:bg-slate-800/60"
+                        >
+                            <p class="text-xs font-medium uppercase tracking-wide text-[#8a3423]/70 dark:text-[#e2a190]/70">
+                                {{ formatDate(conflict.date) }} — {{ conflict.venue_label }}
+                            </p>
+                            <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <template v-for="(r, i) in conflict.reservations" :key="r.reservation_id">
+                                    <Link
+                                        v-if="r.reservation_id"
+                                        :href="route('reservations.show', r.reservation_id)"
+                                        class="font-medium text-[#173528] hover:underline dark:text-slate-100"
+                                    >
+                                        {{ r.label }} — {{ r.display_name || r.contact_name || 'N/A' }}
+                                        <span class="text-[#3f6470]/60 dark:text-slate-400">({{ r.start_time }}–{{ r.end_time }})</span>
+                                        <span v-if="r.conflict_overridden" class="ml-1 rounded-full bg-[#C0563B]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#8a3423] dark:text-[#e2a190]">Overridden</span>
+                                    </Link>
+                                    <span v-if="i === 0" class="text-[#3f6470]/40 dark:text-slate-500">vs.</span>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

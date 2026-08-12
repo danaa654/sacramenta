@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\MassSchedule;
 use App\Models\Reservation;
+use App\Services\ChurchAvailabilityService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Carbon\Carbon;
@@ -11,6 +12,10 @@ use Carbon\Carbon;
 class DashboardController extends Controller
 {
     protected array $massLikeTypes = ['mass', 'chapel_mass', 'school_mass'];
+
+    public function __construct(protected ChurchAvailabilityService $availabilityEngine)
+    {
+    }
 
     public function index(Request $request)
     {
@@ -125,6 +130,14 @@ class DashboardController extends Controller
                 : [],
 
             'financialOverview' => $this->financialOverview($today),
+
+            // "Unresolved Conflicts" widget — upcoming reservations still
+            // double-booked into the same venue/time (deliberately
+            // overridden, or predating the Draft-vs-Draft conflict check),
+            // so staff can catch and resolve it well before either
+            // event's date arrives. See
+            // ChurchAvailabilityService::upcomingConflicts().
+            'unresolvedConflicts' => $this->availabilityEngine->upcomingConflicts(),
         ]);
     }
 
@@ -217,10 +230,18 @@ class DashboardController extends Controller
             ->values()
             ->all();
 
+        // A 'waived' reservation's offering was explicitly forgiven — it
+        // should never count toward "offerings" (expected) or "outstanding"
+        // (money owed). Mirrors the same exclusion in
+        // FinancialsController::index() and Financials/Index.vue's
+        // balanceDue(), so the Dashboard widget and the Financials ledger
+        // never disagree with each other.
+        $unwaived = $rows->where('payment_status', '!=', 'waived');
+
         return [
-            'offerings' => (float) $rows->sum('offering_amount'),
+            'offerings' => (float) $unwaived->sum('offering_amount'),
             'collected' => (float) $rows->sum('amount_paid'),
-            'outstanding' => (float) $rows->sum(fn ($r) => max(0, $r->offering_amount - $r->amount_paid)),
+            'outstanding' => (float) $unwaived->sum(fn ($r) => max(0, $r->offering_amount - $r->amount_paid)),
             'series' => $series,
         ];
     }

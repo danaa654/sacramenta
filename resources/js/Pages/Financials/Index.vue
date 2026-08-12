@@ -75,6 +75,11 @@ function peso(amount) {
 }
 
 function balanceDue(r) {
+    // A waived offering was explicitly forgiven — it should never show as
+    // still owed, even though offering_amount/amount_paid are unchanged on
+    // the record. Mirrors the same exclusion applied to the Expected/
+    // Outstanding summary totals in FinancialsController::index().
+    if (r.payment_status === 'waived') return 0;
     return Math.max(0, Number(r.offering_amount ?? 0) - Number(r.amount_paid ?? 0));
 }
 

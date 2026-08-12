@@ -82,6 +82,8 @@ async function refresh() {
             conflict: conflict.value,
             blocked: blocked.value,
             overrideReason: overrideReason.value,
+            suggestions: suggestions.value,
+            venue: venue.value,
         });
     } catch (e) {
         // Never block the form on a panel failure — server-side validation
@@ -91,6 +93,15 @@ async function refresh() {
         loading.value = false;
     }
 }
+
+// Exposed so the parent form can force a fresh look right after a failed
+// save (the server is always the final word on conflicts — e.g. a priest
+// double-booking caught by SchedulingConflictService rather than this
+// engine — so a rejected submit should immediately re-check and re-show
+// suggestions here too, not just rely on whatever was last fetched while
+// the admin was still typing) and can expand the panel to make the
+// conflict/suggestions block impossible to miss.
+defineExpose({ refresh, expand: () => { expanded.value = true; } });
 
 watch(
     () => [props.date, props.type, props.time, props.locationId, props.excludeId, props.occupiesChurch, JSON.stringify(props.details ?? {})],
