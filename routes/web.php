@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ChurchAvailabilityController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReservationController;
 use App\Http\Controllers\RotaController;
 use App\Http\Controllers\SeminarController;
+use App\Http\Controllers\UserController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -125,6 +127,23 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('notifications.read');
     Route::post('notifications/read-all', [NotificationController::class, 'markAllRead'])
         ->name('notifications.read-all');
+
+    // Manage Users / RBAC (§1–§14 of the RBAC spec). Every action is
+    // ALSO gated server-side by App\Policies\UserPolicy via
+    // $this->authorize() inside UserController — this route list only
+    // decides "must be logged in", not "must be Super Admin". Hiding
+    // these from the sidebar for non-Super-Admins (see Sidebar.vue) is
+    // a UI convenience, never the actual security boundary.
+    Route::get('users', [UserController::class, 'index'])->name('users.index');
+    Route::post('users', [UserController::class, 'store'])->name('users.store');
+    Route::patch('users/{user}', [UserController::class, 'update'])->name('users.update');
+    Route::patch('users/{user}/role', [UserController::class, 'changeRole'])->name('users.change-role');
+    Route::patch('users/{user}/status', [UserController::class, 'toggleStatus'])->name('users.toggle-status');
+    Route::post('users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
+
+    // Activity Logs — Super Admin + Administrator (not Staff), see
+    // App\Policies\AuditLogPolicy.
+    Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
 });
 
 Route::middleware('auth')->group(function () {

@@ -56,4 +56,30 @@ class ReservationPolicy
     {
         return $user->isAdmin();
     }
+
+    /**
+     * Confirming or cancelling a reservation (ReservationController::
+     * updateStatus / updateActions) — per the RBAC spec, Staff can create
+     * and edit reservations but final Confirm/Cancel is an Administrator/
+     * Super Admin approval step. Staff may still move a reservation
+     * between draft states, or into 'completed' (which the system sets
+     * once the event date has passed, not a manual staff action) — only
+     * the transitions INTO 'confirmed' or INTO 'archived' (cancel) are
+     * gated here. Once a reservation is already in that target status,
+     * this returns true so Staff can still submit an unrelated field
+     * (e.g. payment status) via updateActions without the request being
+     * treated as a fresh confirm/cancel.
+     */
+    public function updateStatus(User $user, Reservation $reservation, string $newStatus): bool
+    {
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        $isConfirming = $newStatus === 'confirmed' && $reservation->status !== 'confirmed';
+        $isCancelling = $newStatus === 'archived' && $reservation->status !== 'archived'
+            && $reservation->status !== 'completed';
+
+        return ! $isConfirming && ! $isCancelling;
+    }
 }

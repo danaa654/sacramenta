@@ -101,6 +101,8 @@ class MassScheduleController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        $this->authorize('manage-mass-schedule');
+
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:150'],
             'event_date' => ['required', 'date'],
@@ -223,6 +225,8 @@ class MassScheduleController extends Controller
      */
     public function assignPriest(Request $request, Reservation $reservation): RedirectResponse
     {
+        $this->authorize('manage-mass-schedule');
+
         abort_unless($reservation->type === 'mass', 404);
 
         $validated = $request->validate([
@@ -273,6 +277,8 @@ class MassScheduleController extends Controller
      */
     public function cancel(Request $request, Reservation $reservation): RedirectResponse
     {
+        $this->authorize('manage-mass-schedule');
+
         abort_unless($reservation->type === 'mass', 404);
 
         $reservation->update(['status' => 'cancelled']);
@@ -297,6 +303,8 @@ class MassScheduleController extends Controller
      */
     public function restore(Reservation $reservation): RedirectResponse
     {
+        $this->authorize('manage-mass-schedule');
+
         abort_unless($reservation->type === 'mass', 404);
 
         $reservation->update(['status' => 'confirmed']);

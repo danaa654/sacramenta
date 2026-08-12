@@ -62,6 +62,11 @@ class HandleInertiaRequests extends Middleware
                 // "Wedding date changed — some preparation schedules may
                 // need to be reviewed" notice from ReservationController::update.
                 'warning' => fn () => $request->session()->get('warning'),
+                // One-time display of a freshly-generated password from
+                // UserController::resetPassword (§10/§11 — never logged,
+                // never persisted anywhere the Super Admin can look it
+                // up again after this page load).
+                'temporaryPassword' => fn () => $request->session()->get('temporaryPassword'),
             ],
         ];
     }

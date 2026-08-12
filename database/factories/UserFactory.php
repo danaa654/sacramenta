@@ -45,13 +45,27 @@ class UserFactory extends Factory
     }
 
     /**
-     * An administrator — can delete reservations, correct locked/completed
-     * records, and override schedule conflicts. See App\Policies\ReservationPolicy.
+     * A Super Admin — full system access, including Manage Users. Can
+     * also delete reservations, correct locked/completed records, and
+     * override schedule conflicts. See App\Policies\ReservationPolicy
+     * and App\Policies\UserPolicy. Kept as ->admin() (not renamed) so
+     * existing tests/call sites don't need updating.
      */
     public function admin(): static
     {
         return $this->state(fn (array $attributes) => [
-            'role' => User::ROLE_ADMIN,
+            'role' => User::ROLE_SUPER_ADMIN,
+        ]);
+    }
+
+    /**
+     * An Administrator — full day-to-day reservation/scheduling access,
+     * but cannot Manage Users, change roles, or touch system settings.
+     */
+    public function administrator(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => User::ROLE_ADMINISTRATOR,
         ]);
     }
 }

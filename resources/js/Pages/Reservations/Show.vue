@@ -1,8 +1,20 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import WeddingRequirementsPanel from '@/Components/WeddingRequirementsPanel.vue';
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
+
+// Confirm/Cancel are an Administrator/Super Admin approval step — Staff
+// can still create and edit reservations, and Save Changes on this card
+// still works for reassigning the priest or updating payment status.
+// This is a UI convenience only; the actual boundary is enforced
+// server-side in App\Policies\ReservationPolicy::updateStatus, checked
+// via $this->authorize() in ReservationController::updateStatus /
+// updateActions.
+const isAdminTier = computed(() => {
+    const role = usePage().props.auth.user?.role;
+    return role === 'super_admin' || role === 'administrator';
+});
 
 const props = defineProps({
     reservation: {
@@ -822,7 +834,7 @@ function submitCorrection() {
                                 <select
                                     id="action-status"
                                     v-model="actionsForm.status"
-                                    :disabled="reservation.status === 'completed'"
+                                    :disabled="reservation.status === 'completed' || !isAdminTier"
                                     class="field-input mt-1.5 capitalize disabled:cursor-not-allowed disabled:bg-[#3f6470]/5 disabled:text-[#3f6470]/50 dark:text-slate-300"
                                 >
                                     <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
@@ -831,6 +843,9 @@ function submitCorrection() {
                                 </select>
                                 <p v-if="reservation.status === 'completed'" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-300">
                                     Already completed — use Archive Reservation below to file it, rather than reopening the status.
+                                </p>
+                                <p v-else-if="!isAdminTier" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-300">
+                                    Only an Administrator or Super Admin can confirm or cancel a reservation.
                                 </p>
                             </div>
 
@@ -866,7 +881,7 @@ function submitCorrection() {
 
                         <div class="mt-5 space-y-3 border-t border-[#3f6470]/10 pt-5">
                             <button
-                                v-if="reservation.status === 'draft'"
+                                v-if="reservation.status === 'draft' && isAdminTier"
                                 type="button"
                                 @click="confirmReservation"
                                 :disabled="!allRequirementsComplete || actionsForm.processing"
@@ -880,7 +895,7 @@ function submitCorrection() {
                             </p>
 
                             <button
-                                v-if="reservation.status === 'completed'"
+                                v-if="reservation.status === 'completed' && isAdminTier"
                                 type="button"
                                 @click="archiveReservation"
                                 :disabled="actionsForm.processing"
@@ -890,7 +905,7 @@ function submitCorrection() {
                             </button>
 
                             <button
-                                v-if="reservation.status !== 'archived' && reservation.status !== 'completed'"
+                                v-if="reservation.status !== 'archived' && reservation.status !== 'completed' && isAdminTier"
                                 type="button"
                                 @click="cancelReservation"
                                 :disabled="actionsForm.processing"
@@ -900,7 +915,7 @@ function submitCorrection() {
                             </button>
 
                             <button
-                                v-if="reservation.status !== 'archived' && reservation.status !== 'completed'"
+                                v-if="reservation.status !== 'archived' && reservation.status !== 'completed' && isAdminTier"
                                 type="button"
                                 @click="deleteReservation"
                                 class="w-full rounded-full border border-red-200 bg-red-50 px-6 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-red-600 transition hover:bg-red-100"

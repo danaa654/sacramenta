@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Models\User;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -49,6 +50,28 @@ class LoginRequest extends FormRequest
                 'email' => trans('auth.failed'),
             ]);
         }
+
+        // §7 (User Status): an Inactive user's credentials may still be
+        // correct, but they must not be able to log in. Deliberately
+        // checked AFTER Auth::attempt (not via a WHERE clause added to
+        // the attempt itself), so a deactivated account still gets a
+        // clear "your account has been deactivated" message rather
+        // than the generic "these credentials do not match" — and so
+        // the failed attempt still clears the rate limiter above.
+        /** @var User $user */
+        $user = Auth::user();
+
+        if (! $user->isActive()) {
+            Auth::logout();
+
+            throw ValidationException::withMessages([
+                'email' => 'This account has been deactivated. Please contact a Super Admin.',
+            ]);
+        }
+
+        // §8 (Login Tracking): record the successful login, shown on
+        // Manage Users as "Last Login".
+        $user->forceFill(['last_login_at' => now()])->save();
 
         RateLimiter::clear($this->throttleKey());
     }

@@ -16,14 +16,34 @@ defineEmits(['close', 'toggle']);
 // hover-to-expand/collapse or pin/unpin behavior.
 const expanded = computed(() => true);
 
-const navItems = [
+// Sidebar visibility is a convenience only — the real access boundary
+// is server-side (App\Policies\UserPolicy / AuditLogPolicy, checked in
+// UserController / ActivityLogController). Hiding a link here never
+// substitutes for that.
+import { usePage } from '@inertiajs/vue3';
+
+const page = usePage();
+const role = computed(() => page.props.auth.user?.role);
+const isSuperAdmin = computed(() => role.value === 'super_admin');
+const isAdminTier = computed(() => role.value === 'super_admin' || role.value === 'administrator');
+
+const roleLabels = { super_admin: 'Super Admin', administrator: 'Administrator', staff: 'Staff' };
+const currentRoleLabel = computed(() => roleLabels[role.value] ?? '');
+
+const navItems = computed(() => [
     { label: 'Dashboard', icon: 'grid', route: 'dashboard', enabled: true },
     { label: 'Reservations', icon: 'calendar', route: 'reservations.index', enabled: true },
     { label: 'Calendar', icon: 'calendar-view', route: 'calendar.index', enabled: true },
     { label: 'Mass Schedule', icon: 'calendar-view', route: 'masses.unassigned', enabled: true },
     { label: 'Financials', icon: 'coin', route: 'financials.index', enabled: true },
     { label: 'Archives', icon: 'archive', route: 'archives.index', enabled: true },
-];
+    ...(isAdminTier.value
+        ? [{ label: 'Activity Logs', icon: 'log', route: 'activity-logs.index', enabled: true }]
+        : []),
+    ...(isSuperAdmin.value
+        ? [{ label: 'Manage Users', icon: 'users', route: 'users.index', enabled: true }]
+        : []),
+]);
 
 function initials(name) {
     if (!name) return '';
@@ -150,10 +170,19 @@ onMounted(async () => {
                     <path d="M3.5 9.5h17M8 3v4M16 3v4" stroke-linecap="round" />
                     <rect x="13.2" y="12" width="4.3" height="4.3" rx="0.8" fill="currentColor" stroke="none" />
                 </svg>
-                <svg v-else class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                <svg v-else-if="item.icon === 'archive'" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                     <rect x="3.5" y="4.5" width="17" height="4.5" rx="1.2" />
                     <path d="M4.5 9v8.5a2 2 0 002 2h11a2 2 0 002-2V9" />
                     <path d="M10 13h4" stroke-linecap="round" />
+                </svg>
+                <svg v-else-if="item.icon === 'log'" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <path d="M12 8v4l2.5 2.5" stroke-linecap="round" stroke-linejoin="round" />
+                    <circle cx="12" cy="12" r="8.5" />
+                </svg>
+                <svg v-else class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <circle cx="9" cy="8" r="3" />
+                    <path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke-linecap="round" />
+                    <path d="M16 8.5a2.6 2.6 0 110 5.2M18.5 19c0-2.4-1.8-4.3-4-4.8" stroke-linecap="round" />
                 </svg>
 
                 <span class="whitespace-nowrap">
@@ -200,8 +229,14 @@ onMounted(async () => {
                         {{ initials($page.props.auth.user.name) }}
                     </span>
                     <span class="min-w-0 flex-1">
-                        <span class="block truncate text-sm font-medium text-white">
+                        <span class="flex items-center gap-1.5 truncate text-sm font-medium text-white">
                             {{ $page.props.auth.user.name }}
+                            <span
+                                v-if="currentRoleLabel"
+                                class="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/60"
+                            >
+                                {{ currentRoleLabel }}
+                            </span>
                         </span>
                         <span class="block truncate text-xs text-white/50">
                             {{ $page.props.auth.user.email }}

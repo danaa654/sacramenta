@@ -1,11 +1,21 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Modal from '@/Components/Modal.vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import FullCalendar from '@fullcalendar/vue3';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
+
+// Assign/Change Priest, Cancel, and Restore for a Mass are Super Admin +
+// Administrator only per the RBAC spec (Staff's Mass Schedule access is
+// view-only). UI convenience only — the real boundary is the
+// 'manage-mass-schedule' Gate, checked server-side in
+// MassScheduleController.
+const isAdminTier = computed(() => {
+    const role = usePage().props.auth.user?.role;
+    return role === 'super_admin' || role === 'administrator';
+});
 
 const props = defineProps({
     reservations: {
@@ -668,7 +678,7 @@ const calendarOptions = computed(() => ({
 
                         <div class="flex shrink-0 items-center gap-2">
                             <select
-                                v-if="mass.status !== 'cancelled'"
+                                v-if="mass.status !== 'cancelled' && isAdminTier"
                                 :value="mass.priest_id ?? ''"
                                 class="rounded-lg border-[#3f6470]/20 bg-white py-1.5 pl-2.5 pr-7 text-xs text-[#173528] shadow-sm focus:border-[#173528] focus:ring-[#173528]"
                                 @change="assignPriestToMass(mass.id, $event.target.value)"
@@ -679,7 +689,7 @@ const calendarOptions = computed(() => ({
                                 </option>
                             </select>
                             <button
-                                v-if="mass.status === 'cancelled'"
+                                v-if="mass.status === 'cancelled' && isAdminTier"
                                 type="button"
                                 class="shrink-0 rounded-full border border-[#173528]/15 px-3 py-1 text-xs font-semibold text-[#173528] transition hover:bg-[#173528]/5"
                                 @click="restoreMass(mass.id)"
@@ -687,7 +697,7 @@ const calendarOptions = computed(() => ({
                                 Restore
                             </button>
                             <button
-                                v-else
+                                v-else-if="mass.status !== 'cancelled' && isAdminTier"
                                 type="button"
                                 class="shrink-0 rounded-full border border-[#B84545]/25 px-3 py-1 text-xs font-semibold text-[#B84545] transition hover:bg-[#B84545]/10"
                                 @click="cancelMass(mass.id)"

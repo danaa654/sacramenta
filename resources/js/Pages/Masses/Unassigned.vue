@@ -5,6 +5,16 @@ import { computed, reactive, ref } from 'vue';
 
 const page = usePage();
 
+// Assign/Change Priest, create a special/recurring Mass, Cancel, and
+// Restore are Super Admin + Administrator only per the RBAC spec (Staff's
+// Mass Schedule access is view-only). UI convenience only — the real
+// boundary is the 'manage-mass-schedule' Gate, checked server-side in
+// MassScheduleController.
+const isAdminTier = computed(() => {
+    const role = page.props.auth.user?.role;
+    return role === 'super_admin' || role === 'administrator';
+});
+
 const props = defineProps({
     masses: {
         // Object keyed by "YYYY-MM-DD" => array of reservation rows,
@@ -197,6 +207,7 @@ function submitSpecialMass() {
                             {{ w }} week{{ w === 1 ? '' : 's' }}
                         </button>
                         <button
+                            v-if="isAdminTier"
                             type="button"
                             class="rounded-full bg-[#173528] px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0f2818]"
                             @click="showAddForm = !showAddForm"
@@ -222,7 +233,7 @@ function submitSpecialMass() {
                     Searching all upcoming Masses, not just the {{ weeks }}-week window.
                 </p>
                 <!-- Add Special Mass form -->
-                <div v-if="showAddForm" class="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
+                <div v-if="showAddForm && isAdminTier" class="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-md backdrop-blur-sm dark:border-white/10 dark:bg-slate-800/80">
                     <h3 class="font-serif text-lg text-[#173528] dark:text-white">Add Mass Schedule</h3>
                     <p class="mt-1 text-xs text-[#3f6470]/60 dark:text-slate-400">
                         For a special or one-time Mass. Set "Repeat until" to create a daily series (e.g. Simbang Gabi Dec 16–24) — you can assign a different priest to each night afterward.
@@ -396,7 +407,7 @@ function submitSpecialMass() {
                                 </p>
                             </div>
 
-                            <div v-if="mass.status !== 'cancelled'" class="flex items-center gap-2">
+                            <div v-if="mass.status !== 'cancelled' && isAdminTier" class="flex items-center gap-2">
                                 <select
                                     v-model="assignments[mass.id]"
                                     class="rounded-lg border-[#3f6470]/20 bg-white text-sm text-[#173528] shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
@@ -421,7 +432,7 @@ function submitSpecialMass() {
                                     Cancel
                                 </button>
                             </div>
-                            <div v-else>
+                            <div v-else-if="mass.status === 'cancelled' && isAdminTier">
                                 <button
                                     type="button"
                                     class="rounded-lg border border-[#3f6470]/20 px-3 py-2 text-xs font-semibold text-[#3f6470] transition dark:text-slate-200"

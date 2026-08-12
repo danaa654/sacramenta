@@ -612,6 +612,8 @@ class ReservationController extends Controller
             'status' => ['required', Rule::in(['draft', 'confirmed', 'completed', 'archived'])],
         ]);
 
+        $this->authorize('updateStatus', [$reservation, $validated['status']]);
+
         $completedLockBlocker = $this->completedLockBlocker($reservation, $validated['status']);
 
         if ($completedLockBlocker) {
@@ -654,6 +656,8 @@ class ReservationController extends Controller
             'status' => ['required', Rule::in(['draft', 'confirmed', 'completed', 'archived'])],
             'payment_status' => ['required', Rule::in(['unpaid', 'partial', 'paid', 'waived'])],
         ]);
+
+        $this->authorize('updateStatus', [$reservation, $validated['status']]);
 
         $newPriestId = $validated['priest_id'] ?? null;
 

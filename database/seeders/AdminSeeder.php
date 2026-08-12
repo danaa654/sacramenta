@@ -16,7 +16,8 @@ class AdminSeeder extends Seeder
                 'name' => 'Admin',
                 'password' => Hash::make('admin@sacramenta.test'),
                 'email_verified_at' => now(),
-                'role' => User::ROLE_ADMIN,
+                'role' => User::ROLE_SUPER_ADMIN,
+                'status' => User::STATUS_ACTIVE,
             ]
         );
     }

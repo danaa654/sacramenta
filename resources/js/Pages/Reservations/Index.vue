@@ -1,9 +1,16 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 
 const page = usePage();
+
+// Confirm and permanent-delete are an Administrator/Super Admin action —
+// UI convenience only, enforced server-side by ReservationPolicy.
+const isAdminTier = computed(() => {
+    const role = page.props.auth.user?.role;
+    return role === 'super_admin' || role === 'administrator';
+});
 
 const props = defineProps({
     reservations: {
@@ -355,7 +362,7 @@ function openReservation(reservation) {
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-right text-sm">
                                     <button
-                                        v-if="r.status === 'draft'"
+                                        v-if="r.status === 'draft' && isAdminTier"
                                         @click.stop="confirmReservation(r)"
                                         class="rounded-full bg-[#4f7a4a] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-[#436a3f]"
                                     >
@@ -370,7 +377,7 @@ function openReservation(reservation) {
                                         Edit
                                     </Link>
                                     <button
-                                        v-if="r.status !== 'archived' && r.status !== 'completed'"
+                                        v-if="r.status !== 'archived' && r.status !== 'completed' && isAdminTier"
                                         @click.stop="destroy(r)"
                                         class="ml-4 font-medium text-red-500 hover:underline dark:text-red-400"
                                     >
