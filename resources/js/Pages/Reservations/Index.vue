@@ -168,6 +168,33 @@ function formatDate(date) {
 }
 
 /**
+ * "8:00 AM" from a "H:i" / "H:i:s" time string. Parsed against an
+ * arbitrary fixed date purely so Date's locale time formatter can be
+ * reused — the date part is discarded.
+ */
+function formatTime(time) {
+    if (!time) return null;
+    const [h, m] = time.split(':');
+    const d = new Date(2000, 0, 1, Number(h), Number(m));
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+/**
+ * "8:00 AM – 9:30 AM" for the Date column, using event_time and the
+ * backend-computed event_end_time (event_time + the type's duration —
+ * see Reservation::getEventEndTimeAttribute()). Falls back to nothing
+ * when no start time has been set yet (e.g. a draft still being
+ * scheduled), and to just the start time if an end time couldn't be
+ * computed.
+ */
+function formatTimeRange(r) {
+    const start = formatTime(r.event_time);
+    if (!start) return null;
+    const end = formatTime(r.event_end_time);
+    return end ? `${start} – ${end}` : start;
+}
+
+/**
  * The person/couple/family the sacrament is actually for (e.g. the
  * child being baptized), as distinct from `contact_name` — whoever is
  * arranging the booking, often a parent or coordinator rather than the
@@ -318,7 +345,10 @@ function openReservation(reservation) {
                                     {{ typeLabels[r.type] ?? r.type }}
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-[#2f4a4a] dark:text-slate-200">
-                                    {{ formatDate(r.event_date) }}
+                                    <p>{{ formatDate(r.event_date) }}</p>
+                                    <p v-if="formatTimeRange(r)" class="text-xs text-[#3f6470]/50 dark:text-slate-400">
+                                        {{ formatTimeRange(r) }}
+                                    </p>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-[#2f4a4a] dark:text-slate-200">
                                     <span v-if="r.type !== 'mass'">{{ r.effective_priest?.name ?? '—' }}</span>

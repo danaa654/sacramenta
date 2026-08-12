@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Support\ReservationDuration;
+use Carbon\Carbon;
 
 class Reservation extends Model
 {
@@ -53,6 +55,8 @@ class Reservation extends Model
         'venue_category_label',
         'marriage_preparation_status',
         'effective_priest',
+        'duration_minutes',
+        'event_end_time',
     ];
 
     protected $casts = [
@@ -159,6 +163,39 @@ class Reservation extends Model
         $year = $this->created_at?->format('Y') ?? now()->format('Y');
 
         return "RES-{$year}-".str_pad((string) $this->id, 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * How long this reservation occupies the church/priest, in minutes.
+     * Delegates to App\Support\ReservationDuration — the same single
+     * source of truth ChurchAvailabilityService and
+     * SchedulingConflictService use for conflict detection — so the
+     * duration shown here (e.g. on the Reservations list) always matches
+     * what's actually enforced, including per-type variants (Wedding
+     * ceremony_type, group Baptism child count, First Communion batch
+     * size, etc.) rather than a flat per-type guess.
+     */
+    public function getDurationMinutesAttribute(): int
+    {
+        return ReservationDuration::minutes($this->type, $this->details ?? []);
+    }
+
+    /**
+     * Computed end time (event_time + duration_minutes), formatted as
+     * H:i for the front end to combine with event_time into a "8:00 AM –
+     * 9:30 AM" style range on the Reservations list/calendar. Null
+     * whenever there's no start time set yet (e.g. a draft still being
+     * scheduled), since an end time without a start time is meaningless.
+     */
+    public function getEventEndTimeAttribute(): ?string
+    {
+        if (! $this->event_time) {
+            return null;
+        }
+
+        return Carbon::parse($this->event_time)
+            ->addMinutes($this->duration_minutes)
+            ->format('H:i:s');
     }
 
     /**

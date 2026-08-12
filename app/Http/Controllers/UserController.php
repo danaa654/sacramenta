@@ -160,17 +160,35 @@ class UserController extends Controller
 
     /**
      * Super Admin sets a new password for another user — the current
-     * password is never shown or retrievable (§10/§11). Generates a
-     * secure random temporary password and returns it once, in the
-     * flash message only, so it can be relayed to that staff member
-     * out of band; it is never written to the Activity Log (§10).
+     * password is never shown or retrievable (§10/§11). Either:
+     *  - leaves the request empty and a secure random password is
+     *    generated, or
+     *  - passes a short, simple password of the Super Admin's own
+     *    choosing (e.g. something easy to read out over the phone),
+     *    validated only for a sane minimum length — it's a one-time
+     *    temporary credential, not a long-term password, so the usual
+     *    Password::defaults() complexity rule doesn't apply here.
+     * Either way the password is returned once, in the flash message
+     * only, so it can be relayed to that person out of band, and
+     * must_change_password is set so they're forced to pick their own
+     * real password (via Auth\PasswordController::update, which clears
+     * the flag) the next time they land on any page. Never written to
+     * the Activity Log (§10).
      */
     public function resetPassword(Request $request, User $user): RedirectResponse
     {
         $this->authorize('resetPassword', $user);
 
-        $temporaryPassword = Str::password(12);
-        $user->forceFill(['password' => Hash::make($temporaryPassword)])->save();
+        $validated = $request->validate([
+            'password' => ['nullable', 'string', 'min:6', 'max:72'],
+        ]);
+
+        $newPassword = $validated['password'] ?? Str::password(12);
+
+        $user->forceFill([
+            'password' => Hash::make($newPassword),
+            'must_change_password' => true,
+        ])->save();
 
         AuditLogger::log(
             'user_password_reset',
@@ -179,7 +197,7 @@ class UserController extends Controller
             ['target_user_id' => $user->id]
         );
 
-        return back()->with('success', "Password reset for {$user->name}.")
-            ->with('temporaryPassword', $temporaryPassword);
+        return back()->with('success', "Password reset for {$user->name}. They'll be asked to set their own password on next login.")
+            ->with('temporaryPassword', $newPassword);
     }
 }

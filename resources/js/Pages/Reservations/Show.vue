@@ -545,7 +545,15 @@ function submitCorrection() {
                         </div>
                         <div>
                             <dt class="field-label">Event Time</dt>
-                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">{{ formatTime(reservation.event_time) }}</dd>
+                            <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">
+                                {{ formatTime(reservation.event_time) }}
+                                <span v-if="reservation.event_time && reservation.event_end_time" class="text-[#3f6470]/50 dark:text-slate-400">
+                                    – {{ formatTime(reservation.event_end_time) }}
+                                </span>
+                                <span v-if="reservation.event_time" class="ml-1 text-xs text-[#3f6470]/40 dark:text-slate-500">
+                                    ({{ reservation.duration_minutes }} min)
+                                </span>
+                            </dd>
                         </div>
                         <div>
                             <dt class="field-label">Assigned Priest</dt>

@@ -168,14 +168,20 @@ function confirmToggleStatus() {
 // ---- Reset Password confirm + reveal ----
 const confirmingReset = ref(null);
 const revealedPassword = ref(null);
+const resetMode = ref('generate'); // 'generate' | 'custom'
+const customPassword = ref('');
 
 function askResetPassword(user) {
     confirmingReset.value = user;
+    resetMode.value = 'generate';
+    customPassword.value = '';
 }
 
 function confirmResetPassword() {
     const targetName = confirmingReset.value.name;
-    router.post(route('users.reset-password', confirmingReset.value.id), {}, {
+    const payload = resetMode.value === 'custom' ? { password: customPassword.value } : {};
+
+    router.post(route('users.reset-password', confirmingReset.value.id), payload, {
         preserveScroll: true,
         onSuccess: () => {
             confirmingReset.value = null;
@@ -526,23 +532,68 @@ function isLastActiveSuperAdmin(user) {
             <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-800">
                 <h2 class="text-lg font-semibold text-[#173528] dark:text-slate-100">Reset Password — {{ confirmingReset.name }}</h2>
                 <p class="mt-2 text-sm text-[#3f6470]/70 dark:text-slate-300">
-                    Generates a new secure password. Their current password will stop working immediately.
+                    Their current password will stop working immediately. They'll be asked to set their own password the next time they log in.
                 </p>
+
+                <div class="mt-4 flex gap-2 rounded-full bg-[#F7F5EF] p-1 text-xs font-semibold dark:bg-slate-700">
+                    <button
+                        type="button"
+                        class="flex-1 rounded-full px-3 py-1.5 transition"
+                        :class="resetMode === 'generate' ? 'bg-white text-[#173528] shadow-sm dark:bg-slate-600 dark:text-white' : 'text-[#3f6470]/60 dark:text-slate-300'"
+                        @click="resetMode = 'generate'"
+                    >
+                        Auto-generate
+                    </button>
+                    <button
+                        type="button"
+                        class="flex-1 rounded-full px-3 py-1.5 transition"
+                        :class="resetMode === 'custom' ? 'bg-white text-[#173528] shadow-sm dark:bg-slate-600 dark:text-white' : 'text-[#3f6470]/60 dark:text-slate-300'"
+                        @click="resetMode = 'custom'"
+                    >
+                        Set a simple password
+                    </button>
+                </div>
+
+                <div v-if="resetMode === 'generate'" class="mt-3">
+                    <p class="text-xs text-[#3f6470]/60 dark:text-slate-400">
+                        A secure random password will be generated for you to relay to {{ confirmingReset.name }}.
+                    </p>
+                </div>
+                <div v-else class="mt-3">
+                    <label class="text-xs font-medium text-[#3f6470] dark:text-slate-300">Password to tell {{ confirmingReset.name }}</label>
+                    <input
+                        v-model="customPassword"
+                        type="text"
+                        minlength="6"
+                        maxlength="72"
+                        placeholder="e.g. parish2026"
+                        class="mt-1.5 w-full rounded-lg border-[#3f6470]/20 text-sm shadow-sm focus:border-[#173528] focus:ring-[#173528] dark:bg-slate-700 dark:text-slate-100"
+                    />
+                    <p class="mt-1.5 text-xs text-[#3f6470]/60 dark:text-slate-400">
+                        At least 6 characters. Something easy to read out loud is fine — they'll be required to change it on next login.
+                    </p>
+                </div>
+
                 <div class="mt-5 flex justify-end gap-3">
                     <button type="button" class="rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] dark:text-slate-300" @click="confirmingReset = null">Cancel</button>
-                    <button type="button" class="rounded-full bg-[#173528] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-[#0f2818]" @click="confirmResetPassword">
+                    <button
+                        type="button"
+                        class="rounded-full bg-[#173528] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-[#0f2818] disabled:cursor-not-allowed disabled:opacity-40"
+                        :disabled="resetMode === 'custom' && customPassword.length < 6"
+                        @click="confirmResetPassword"
+                    >
                         Reset Password
                     </button>
                 </div>
             </div>
         </div>
 
-        <!-- Reveal generated password once -->
+        <!-- Reveal the new password once -->
         <div v-if="revealedPassword" class="fixed inset-0 z-50 flex items-center justify-center bg-[#173528]/40 px-4 py-8 backdrop-blur-sm" @click.self="revealedPassword = null">
             <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-800">
                 <h2 class="text-lg font-semibold text-[#173528] dark:text-slate-100">New password for {{ revealedPassword.name }}</h2>
                 <p class="mt-2 text-sm text-[#3f6470]/70 dark:text-slate-300">
-                    Share this with them directly. It will not be shown again.
+                    Share this with them directly. It will not be shown again. They'll be asked to set their own password the next time they log in.
                 </p>
                 <p class="mt-3 select-all rounded-lg border border-[#3f6470]/20 bg-[#F7F5EF] px-3 py-2 text-center font-mono text-sm text-[#173528] dark:bg-slate-700 dark:text-slate-100">
                     {{ revealedPassword.password }}
