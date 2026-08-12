@@ -295,7 +295,7 @@ function openReservation(reservation) {
                                     {{ formatDate(r.event_date) }}
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-[#2f4a4a] dark:text-slate-200">
-                                    <span v-if="r.type !== 'mass'">{{ r.priest?.name ?? '—' }}</span>
+                                    <span v-if="r.type !== 'mass'">{{ r.effective_priest?.name ?? '—' }}</span>
                                     <select
                                         v-else
                                         v-model="assignments[r.id]"

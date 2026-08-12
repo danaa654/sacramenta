@@ -478,12 +478,34 @@ function submitCorrection() {
                         <h3 class="font-serif text-xl font-medium text-[#3f6470] dark:text-slate-300">
                             {{ typeLabels[reservation.type] ?? reservation.type }}
                         </h3>
-                        <span
-                            class="rounded-full border px-3 py-1 text-xs font-medium capitalize"
-                            :class="statusStyles[reservation.status] ?? statusStyles.draft"
+                        <div class="flex items-center gap-2">
+                            <span
+                                v-if="reservation.type === 'pamisa_sa_kalag' && reservation.mass_link_needs_review"
+                                class="rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-red-700"
+                            >
+                                ⚠️ Needs Review
+                            </span>
+                            <span
+                                class="rounded-full border px-3 py-1 text-xs font-medium capitalize"
+                                :class="statusStyles[reservation.status] ?? statusStyles.draft"
+                            >
+                                {{ reservation.status }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div
+                        v-if="reservation.type === 'pamisa_sa_kalag' && reservation.mass_link_needs_review"
+                        class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+                    >
+                        <p class="font-semibold">⚠️ This Pamisa sa Kalag schedule needs review</p>
+                        <p class="mt-1">{{ reservation.mass_link_review_reason }}</p>
+                        <Link
+                            :href="route('reservations.edit', reservation.id)"
+                            class="mt-2 inline-block text-xs font-semibold uppercase tracking-wide text-red-700 underline"
                         >
-                            {{ reservation.status }}
-                        </span>
+                            Adjust Schedule
+                        </Link>
                     </div>
 
                     <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
@@ -516,7 +538,7 @@ function submitCorrection() {
                         <div>
                             <dt class="field-label">Assigned Priest</dt>
                             <dd class="mt-1 text-sm text-[#2f4a4a] dark:text-slate-100">
-                                {{ reservation.priest?.name ?? 'Unassigned' }}
+                                {{ reservation.effective_priest?.name ?? 'Unassigned' }}
                             </dd>
                         </div>
                         <div>

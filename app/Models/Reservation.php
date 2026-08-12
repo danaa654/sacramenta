@@ -24,6 +24,9 @@ class Reservation extends Model
         'priest_id',
         'location_id',
         'mass_schedule_id',
+        'linked_mass_reservation_id',
+        'mass_link_needs_review',
+        'mass_link_review_reason',
         'status',
         'created_by',
         'updated_by',
@@ -49,6 +52,7 @@ class Reservation extends Model
         'venue_category',
         'venue_category_label',
         'marriage_preparation_status',
+        'effective_priest',
     ];
 
     protected $casts = [
@@ -59,11 +63,66 @@ class Reservation extends Model
         'amount_paid' => 'decimal:2',
         'conflict_overridden' => 'boolean',
         'overridden_at' => 'datetime',
+        'mass_link_needs_review' => 'boolean',
     ];
+
+    /**
+     * Pamisa sa Kalag reservations don't book independent church time —
+     * whenever the Mass occurrence they're attached to is cancelled or its
+     * date/time changes, flag every linked Pamisa sa Kalag reservation for
+     * admin review instead of letting it silently drift out of sync (see
+     * "Pamisa sa Kalag <-> Mass Schedule integration").
+     */
+    protected static function booted(): void
+    {
+        static::updated(function (Reservation $reservation) {
+            if ($reservation->type !== 'mass') {
+                return;
+            }
+
+            $becameCancelled = $reservation->wasChanged('status') && $reservation->status === 'cancelled';
+            $timeChanged = $reservation->wasChanged('event_date') || $reservation->wasChanged('event_time');
+
+            if (! $becameCancelled && ! $timeChanged) {
+                return;
+            }
+
+            $reason = $becameCancelled
+                ? 'The linked Mass was cancelled.'
+                : "The linked Mass was rescheduled to {$reservation->event_date->format('M j, Y')}".
+                    ($reservation->event_time ? ' '.\Carbon\Carbon::parse($reservation->event_time)->format('g:i A') : '').'.';
+
+            app(\App\Services\PamisaMassLinkService::class)->flagForReview($reservation, $reason);
+        });
+    }
 
     public function priest(): BelongsTo
     {
         return $this->belongsTo(Priest::class);
+    }
+
+    /**
+     * Pamisa sa Kalag has no priest of its own — it's said BY whichever
+     * priest is (or later becomes) assigned to the Mass it's linked to
+     * (see prepareForValidation() in StoreReservationRequest, which copies
+     * priest_id from the Mass at creation time). That copy goes stale the
+     * moment an admin assigns/reassigns a priest to the Mass afterward
+     * (e.g. via the Mass Schedule "Assign priest" panel), since nothing
+     * re-saves every already-linked Pamisa sa Kalag row when that happens.
+     *
+     * This accessor keeps the two from drifting apart: for a Pamisa sa
+     * Kalag reservation it always resolves to the LIVE priest currently
+     * on its linked Mass (falling back to its own priest_id, in case it
+     * isn't linked to a Mass row for some reason). For every other type
+     * it's just the reservation's own priest.
+     */
+    public function getEffectivePriestAttribute(): ?Priest
+    {
+        if ($this->type === 'pamisa_sa_kalag') {
+            return $this->linkedMass?->priest ?? $this->priest;
+        }
+
+        return $this->priest;
     }
 
     /**
@@ -482,6 +541,48 @@ class Reservation extends Model
     public function massSchedule(): BelongsTo
     {
         return $this->belongsTo(MassSchedule::class);
+    }
+
+    /**
+     * The specific Mass occurrence (a type = 'mass' Reservation row) this
+     * Pamisa sa Kalag reservation is attached to. Null for every
+     * reservation type other than pamisa_sa_kalag.
+     */
+    public function linkedMass(): BelongsTo
+    {
+        return $this->belongsTo(Reservation::class, 'linked_mass_reservation_id');
+    }
+
+    /**
+     * Inverse of linkedMass() — for a Mass occurrence, every Pamisa sa
+     * Kalag reservation attached to it. Powers the printed/announced Mass
+     * Intention list (see massIntentionNames()) and the capacity check in
+     * ReservationController::massSchedules().
+     */
+    public function pamisaIntentions(): HasMany
+    {
+        return $this->hasMany(Reservation::class, 'linked_mass_reservation_id');
+    }
+
+    /**
+     * Flat, de-duplicated list of deceased names to announce/print for
+     * THIS Mass occurrence, drawn from every non-cancelled Pamisa sa Kalag
+     * reservation linked to it. Type = 'mass' reservations only; returns
+     * an empty array for every other type.
+     */
+    public function massIntentionNames(): array
+    {
+        if ($this->type !== 'mass') {
+            return [];
+        }
+
+        return $this->pamisaIntentions()
+            ->where('status', '!=', 'cancelled')
+            ->get()
+            ->flatMap(fn (Reservation $r) => $r->namesFrom($r->details['names'] ?? null))
+            ->unique()
+            ->values()
+            ->all();
     }
 
     public function requirements(): HasMany

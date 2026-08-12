@@ -48,7 +48,7 @@ class ReservationController extends Controller
         $showRegularMasses = $request->boolean('show_regular_masses');
         $showPastRecords = $request->boolean('show_past_records');
 
-        $reservations = Reservation::with('priest')
+        $reservations = Reservation::with(['priest', 'linkedMass.priest'])
             ->when($request->string('search')->toString(), fn ($q, $search) => $q->searchSubject($search))
             ->when($request->string('type')->toString(), fn ($q, $type) => $q->where('type', $type))
             ->when($request->string('status')->toString(), fn ($q, $status) => $q->where('status', $status))
@@ -154,7 +154,7 @@ class ReservationController extends Controller
 
     public function show(Request $request, Reservation $reservation): Response
     {
-        $reservation->load('priest', 'location', 'requirements', 'rotaAssignments', 'creator', 'updater', 'seminar');
+        $reservation->load('priest', 'linkedMass.priest', 'location', 'requirements', 'rotaAssignments', 'creator', 'updater', 'seminar');
 
         return Inertia::render('Reservations/Show', [
             'reservation' => $reservation,
@@ -282,6 +282,14 @@ class ReservationController extends Controller
             && (string) $reservation->getOriginal('event_date') !== (string) $data['event_date'];
 
         $reservation->update($data);
+
+        // Re-attaching (or confirming) a Pamisa sa Kalag's Mass link
+        // clears any prior "Needs Review" flag — the admin has just acted
+        // on it, whether by accepting a fresh suggestion or manually
+        // picking another available Mass.
+        if ($reservation->type === 'pamisa_sa_kalag' && $reservation->linked_mass_reservation_id) {
+            app(\App\Services\PamisaMassLinkService::class)->clearReview($reservation);
+        }
 
         // Wedding Date changed -> refresh only the SUGGESTED (not
         // manually-adjusted) activities to match the new date.
@@ -765,6 +773,15 @@ class ReservationController extends Controller
             return null;
         }
 
+        // Pamisa sa Kalag reservations intentionally piggyback on an
+        // existing Mass slot (see SchedulingConflictService::sharesMassSlot).
+        // linked_mass_reservation_id lives on its own column, not inside
+        // `details`, so fold it in here for the conflict checks below.
+        $conflictDetails = array_merge(
+            $reservation->details ?? [],
+            ['linked_mass_reservation_id' => $reservation->linked_mass_reservation_id]
+        );
+
         if ($reservation->priest_id) {
             $conflict = $this->conflicts->findPriestConflict(
                 $reservation->priest_id,
@@ -772,7 +789,7 @@ class ReservationController extends Controller
                 substr((string) $reservation->event_time, 0, 5),
                 $reservation->type,
                 $reservation->id,
-                $reservation->details ?? []
+                $conflictDetails
             );
 
             if ($conflict) {
@@ -792,7 +809,7 @@ class ReservationController extends Controller
                 substr((string) $reservation->event_time, 0, 5),
                 $reservation->type,
                 $reservation->id,
-                $reservation->details ?? []
+                $conflictDetails
             );
 
             if ($conflict) {
@@ -809,7 +826,7 @@ class ReservationController extends Controller
                 substr((string) $reservation->event_time, 0, 5),
                 $reservation->type,
                 $reservation->id,
-                $reservation->details ?? []
+                $conflictDetails
             );
 
             if ($conflict) {
@@ -932,44 +949,101 @@ class ReservationController extends Controller
     }
 
     /**
-     * GET /reservations/mass-schedules?date=YYYY-MM-DD
+     * GET /reservations/mass-schedules?date=YYYY-MM-DD[&exclude=ID]
      *
-     * Real Mass Schedule occurrences (from the mass_schedules table) that
-     * apply to the given date's weekday — this is what Pamisa sa Kalag
-     * attaches to (see the "PAMISA SA KALAG" workflow: it must be attached
-     * to an existing Mass Schedule, never book independent church time).
-     * Returns each as {id, start_time, mass_type, label}, where `id` is
-     * the mass_schedules.id that reservations.mass_schedule_id points to.
+     * The REAL, individually-editable Mass occurrences for a given date —
+     * `reservations` rows with type = 'mass' (regular, generated from the
+     * weekly template, or special/one-off) — not the weekly template
+     * itself. This is what Pamisa sa Kalag attaches to: the Main Church is
+     * fixed as the location, and the reservation is scheduled WITHIN one
+     * of these existing Mass occurrences rather than getting an
+     * independent church-venue schedule of its own.
+     *
+     * A Mass that's cancelled, or already at capacity for Pamisa sa Kalag
+     * intentions (config('mass_schedule.max_pamisa_intentions_per_mass')),
+     * is never offered — the admin can never select a time that doesn't
+     * correspond to an existing, available Mass Schedule occurrence.
+     *
+     * One Mass is marked `suggested` (the earliest available occurrence
+     * for the date) so the UI can present a single 💡 SUGGESTED option up
+     * front, with the rest available via "Adjust Schedule".
+     *
+     * `exclude` (optional) is the current Pamisa sa Kalag reservation's own
+     * id, when editing one that's already linked to a Mass — so that
+     * Mass's own intention count doesn't count itself against its capacity.
      */
     public function massSchedules(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'date' => ['required', 'date'],
+            'exclude' => ['nullable', 'integer'],
         ]);
 
-        $weekday = Carbon::parse($validated['date'])->dayOfWeek;
+        $capacity = (int) config('mass_schedule.max_pamisa_intentions_per_mass', 10);
+        $mainSanctuaryName = config('church_schedule.main_sanctuary_name', 'Parish of the Holy Sacraments');
 
-        $schedules = MassSchedule::query()
-            ->where('is_active', true)
-            ->get()
-            ->filter(fn (MassSchedule $s) => in_array($weekday, $s->days_of_week ?? [], true))
-            ->sortBy('start_time')
-            ->values()
-            ->map(fn (MassSchedule $s) => [
-                'id' => $s->id,
-                'start_time' => substr($s->start_time, 0, 5),
-                'mass_type' => $s->label,
-                'label' => $this->formatMassScheduleLabel($s),
-            ]);
+        $masses = Reservation::query()
+            ->where('type', 'mass')
+            ->where('status', 'confirmed')
+            ->whereDate('event_date', $validated['date'])
+            ->with(['priest:id,name', 'massSchedule:id,label'])
+            ->orderBy('event_time')
+            ->get();
 
-        return response()->json(['schedules' => $schedules]);
+        $schedules = $masses
+            ->map(function (Reservation $mass) use ($capacity, $validated, $mainSanctuaryName) {
+                $intentionCount = $mass->pamisaIntentions()
+                    ->where('status', '!=', 'cancelled')
+                    ->when($validated['exclude'] ?? null, fn ($q, $excludeId) => $q->where('id', '!=', $excludeId))
+                    ->count();
+
+                return [
+                    'id' => $mass->id,
+                    'date' => $mass->event_date->format('Y-m-d'),
+                    'start_time' => substr((string) $mass->event_time, 0, 5),
+                    'end_time' => $this->massEndTime($mass),
+                    'mass_type' => $mass->title ?: ($mass->massSchedule?->label ?: 'Mass'),
+                    'label' => $this->formatMassOccurrenceLabel($mass),
+                    'priest_id' => $mass->priest_id,
+                    'priest_name' => $mass->priest?->name,
+                    'venue' => $mainSanctuaryName,
+                    'intention_count' => $intentionCount,
+                    'capacity' => $capacity,
+                    'is_full' => $intentionCount >= $capacity,
+                ];
+            })
+            // A full Mass is never offered as an available option — Pamisa
+            // sa Kalag can never select a time that doesn't correspond to
+            // an existing, AVAILABLE Mass Schedule occurrence.
+            ->reject(fn (array $s) => $s['is_full'])
+            ->values();
+
+        // The earliest available occurrence is the automatic suggestion —
+        // marked here (server-side) so the UI never has to guess.
+        $suggestedId = $schedules->first()['id'] ?? null;
+        $schedules = $schedules->map(fn (array $s) => $s + ['suggested' => $s['id'] === $suggestedId]);
+
+        return response()->json(['schedules' => $schedules->values()]);
     }
 
-    protected function formatMassScheduleLabel(MassSchedule $schedule): string
+    protected function massEndTime(Reservation $mass): ?string
     {
-        $time = Carbon::createFromFormat('H:i:s', $schedule->start_time)->format('g:i A');
+        if (! $mass->event_time) {
+            return null;
+        }
 
-        return trim("{$time} — {$schedule->label}");
+        $minutes = $this->availabilityEngine->durationMinutes('mass', $mass->details ?? []);
+
+        return Carbon::parse($mass->event_time)->addMinutes($minutes)->format('H:i');
+    }
+
+    protected function formatMassOccurrenceLabel(Reservation $mass): string
+    {
+        $time = $mass->event_time ? Carbon::parse($mass->event_time)->format('g:i A') : '—';
+        $type = $mass->title ?: ($mass->massSchedule?->label ?: 'Mass');
+        $priest = $mass->priest?->name;
+
+        return trim("{$time} — {$type}".($priest ? " — {$priest}" : ' — Unassigned'));
     }
 
     /**

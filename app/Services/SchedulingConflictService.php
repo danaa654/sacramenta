@@ -334,6 +334,7 @@ class SchedulingConflictService
         $duration = $this->durationFor($type, $details);
         $start = Carbon::parse("{$date} {$time}");
         $end = $start->copy()->addMinutes($duration);
+        $massId = $details['linked_mass_reservation_id'] ?? null;
 
         return $query
             ->where('status', 'confirmed')
@@ -341,7 +342,11 @@ class SchedulingConflictService
             ->whereNotNull('event_time')
             ->when($excludeId, fn ($q) => $q->where('id', '!=', $excludeId))
             ->get()
-            ->first(function (Reservation $existing) use ($start, $end) {
+            ->first(function (Reservation $existing) use ($start, $end, $type, $massId, $excludeId) {
+                if ($this->sharesMassSlot($type, $massId, $excludeId, $existing)) {
+                    return false;
+                }
+
                 $existingStart = Carbon::parse(
                     $existing->event_date->format('Y-m-d').' '.$existing->event_time
                 );
@@ -349,5 +354,43 @@ class SchedulingConflictService
 
                 return $start->lt($existingEnd) && $existingStart->lt($end);
             });
+    }
+
+    /**
+     * Pamisa sa Kalag requests deliberately "piggyback" on an existing
+     * regular Mass — many separate Pamisa sa Kalag reservations (and the
+     * underlying Mass reservation itself) are all legitimately confirmed
+     * for the exact same location + date + time. Without this check, the
+     * generic findLocationConflict()/findConflict() logic would treat every
+     * one of those as colliding with each other and refuse to let more than
+     * one be confirmed — which is wrong, since sharing the slot is the
+     * whole point of the feature.
+     *
+     * Two reservations are considered part of the same Mass slot (and
+     * therefore NOT a conflict with each other) when either:
+     *  - the reservation being checked is a Pamisa sa Kalag linked to a
+     *    Mass, and $existing IS that linked Mass reservation, or
+     *  - both are Pamisa sa Kalag requests linked to the same Mass, or
+     *  - the reservation being checked is the Mass itself (id === $excludeId
+     *    when confirming a Mass), and $existing is a Pamisa sa Kalag linked
+     *    to it.
+     */
+    protected function sharesMassSlot(string $type, ?int $massId, ?int $excludeId, Reservation $existing): bool
+    {
+        if ($type === 'pamisa_sa_kalag' && $massId) {
+            if ($existing->id === $massId) {
+                return true;
+            }
+
+            if ($existing->type === 'pamisa_sa_kalag' && $existing->linked_mass_reservation_id === $massId) {
+                return true;
+            }
+        }
+
+        if ($type === 'mass' && $excludeId && $existing->type === 'pamisa_sa_kalag' && $existing->linked_mass_reservation_id === $excludeId) {
+            return true;
+        }
+
+        return false;
     }
 }

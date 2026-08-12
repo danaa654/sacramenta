@@ -30,6 +30,9 @@ use Illuminate\Notifications\Notification;
  *   wedding_documents            — Wedding documents still unverified
  *   wedding_upcoming             — the wedding ceremony itself is approaching
  *
+ *   mass_link_needs_review    — a Pamisa sa Kalag's linked Mass was cancelled
+ *                                or rescheduled and needs admin review
+ *
  * `dedupe_key` (optional) lets a check command scope its "already sent"
  * lookup to a specific offset/bucket (e.g. the "7 days before" reminder vs
  * the "1 day before" reminder for the very same reservation+kind), so two

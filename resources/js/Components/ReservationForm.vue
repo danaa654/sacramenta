@@ -227,7 +227,7 @@ function defaultDetailsFor(type) {
         case 'others':
             return { location: '' };
         case 'pamisa_sa_kalag':
-            return { names: [''], mass_schedule_id: '', mass_type: '' };
+            return { names: [''] };
         case 'school_mass':
             return {
                 school_name: '',
@@ -258,8 +258,6 @@ function initialDetails() {
         if (!Array.isArray(details.names) || !details.names.length) {
             details.names = [''];
         }
-        details.mass_schedule_id ??= '';
-        details.mass_type ??= '';
     }
 
     if (props.reservation.type === 'wedding') {
@@ -323,6 +321,12 @@ const form = useForm({
     event_time: props.reservation?.event_time?.slice(0, 5) ?? '',
     priest_id: props.reservation?.priest_id ?? '',
     location_id: props.reservation?.location_id ?? '',
+    // The specific existing Mass occurrence (reservations.id, type =
+    // 'mass') this Pamisa sa Kalag reservation attaches to. This is the
+    // ONLY schedule field Pamisa sa Kalag submits — event_date/event_time/
+    // priest_id above are display-only for it, overwritten server-side
+    // from the linked Mass (see StoreReservationRequest::prepareForValidation()).
+    linked_mass_reservation_id: props.reservation?.linked_mass_reservation_id ?? '',
     offering_amount: props.reservation?.offering_amount ?? '',
     details: initialDetails(),
     // Church Availability & Conflict Detection Engine override — only
@@ -336,6 +340,17 @@ function selectType(type) {
     if (form.type === type) return;
     form.type = type;
     form.details = defaultDetailsFor(type);
+    form.linked_mass_reservation_id = '';
+
+    // Pamisa sa Kalag has no free-text Event Time — its schedule comes
+    // entirely from the auto-suggested Mass occurrence, which only loads
+    // once a Mass Date is set. Default it to today (the earliest allowed
+    // date) so the 💡 Suggested schedule appears immediately instead of
+    // making the admin pick a date first.
+    if (type === 'pamisa_sa_kalag' && !form.event_date) {
+        autoAdvancing.value = true;
+        form.event_date = todayStr;
+    }
 }
 
 function addGodparent() {
@@ -722,45 +737,59 @@ function onSelectSuggestedSlot(suggestion) {
 }
 
 function submit() {
+    // The backend stores Pamisa sa Kalag deceased names as a single
+    // newline-delimited string (details.names => ['required', 'string']),
+    // while the UI keeps them as an array of rows for editing. Convert
+    // the array back into a string right before sending so validation
+    // ("The details.names field must be a string") doesn't fail.
+    const submitForm = form.transform((data) => {
+        if (data.type === 'pamisa_sa_kalag' && Array.isArray(data.details?.names)) {
+            return {
+                ...data,
+                details: {
+                    ...data.details,
+                    names: data.details.names
+                        .map((n) => (n || '').trim())
+                        .filter(Boolean)
+                        .join('\n'),
+                },
+            };
+        }
+        return data;
+    });
+
     if (isEdit.value) {
-        form.put(route('reservations.update', props.reservation.id));
+        submitForm.put(route('reservations.update', props.reservation.id));
     } else {
-        form.post(route('reservations.store'));
+        submitForm.post(route('reservations.store'));
     }
 }
 
-// --- Pamisa sa Kalag: Mass Date -> Mass Schedule dependent dropdown ---
-// Pulls from a dedicated Mass Schedule Management endpoint once that module
-// exists (route: reservations.mass-schedules?date=YYYY-MM-DD). Until then,
-// falls back to a placeholder daily schedule so the workflow is usable —
-// swap in the real endpoint and this fallback can be removed.
+// --- Pamisa sa Kalag: Mass Date -> available Mass Schedule occurrences,
+// with an automatic 💡 SUGGESTED pick (mirrors the Wedding preparation
+// Suggested/Adjust/Accept pattern — see WeddingRequirementsPanel.vue).
+// The Mass Schedule is the ONLY source of truth for date/time/priest here;
+// there is no free-text Event Time field for Pamisa sa Kalag. ---
 const massSchedules = ref([]);
 const loadingMassSchedules = ref(false);
 const massScheduleLoadFailed = ref(false);
-
-function fallbackMassSchedulesFor(date) {
-    if (!date) return [];
-    const base = [
-        { start_time: '06:00', mass_type: 'Daily Mass' },
-        { start_time: '08:00', mass_type: 'Daily Mass' },
-        { start_time: '10:00', mass_type: 'Daily Mass' },
-        { start_time: '17:00', mass_type: 'Anticipated Mass' },
-        { start_time: '18:30', mass_type: 'Daily Mass' },
-    ];
-    return base.map((s, i) => ({
-        id: `${date}-${s.start_time}`,
-        date,
-        start_time: s.start_time,
-        mass_type: s.mass_type,
-        label: `${formatTimeLabel(s.start_time)} — ${s.mass_type}`,
-    }));
-}
+const adjustingMassSchedule = ref(false);
 
 function formatTimeLabel(hhmm) {
+    if (!hhmm) return '';
     const [h, m] = hhmm.split(':').map(Number);
     const hour12 = ((h + 11) % 12) + 1;
     const suffix = h >= 12 ? 'PM' : 'AM';
     return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
+}
+
+function formatDisplayDate(dateStr) {
+    if (!dateStr) return '';
+    return new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+    });
 }
 
 async function loadMassSchedules(date) {
@@ -771,20 +800,80 @@ async function loadMassSchedules(date) {
     loadingMassSchedules.value = true;
     massScheduleLoadFailed.value = false;
     try {
-        const { data } = await axios.get(route('reservations.mass-schedules'), { params: { date } });
-        massSchedules.value = (data.schedules ?? []).map((s) => ({
-            ...s,
-            label: s.label ?? `${formatTimeLabel(s.start_time)}${s.mass_type ? ` — ${s.mass_type}` : ''}`,
-        }));
+        const { data } = await axios.get(route('reservations.mass-schedules'), {
+            params: { date, exclude: props.reservation?.id ?? undefined },
+        });
+        massSchedules.value = data.schedules ?? [];
+
+        // Keep a previously-selected/linked Mass if it's still in the
+        // available list; otherwise fall back to whatever the backend
+        // marked as 💡 SUGGESTED (the earliest available occurrence).
+        const stillAvailable = massSchedules.value.some(
+            (s) => String(s.id) === String(form.linked_mass_reservation_id),
+        );
+        if (!stillAvailable) {
+            const suggestion = massSchedules.value.find((s) => s.suggested);
+            form.linked_mass_reservation_id = suggestion ? suggestion.id : '';
+            adjustingMassSchedule.value = false;
+        }
+
+        // Auto-generate a suggestion even when the chosen date has nothing
+        // available: silently look ahead (up to 2 weeks) for the next date
+        // that has an open Mass, and move the Mass Date there automatically
+        // — the admin should always land on a working suggestion rather
+        // than an empty "no Masses" state whenever one exists nearby. Only
+        // kicks in on the initial auto-pick (autoAdvancing), never
+        // overriding a date the admin picked manually.
+        if (!massSchedules.value.length && autoAdvancing.value) {
+            await tryNextAvailableMassDate(date);
+        } else {
+            // Either we found schedules, or there was nothing to advance
+            // from — either way this auto-pick pass is done. Without this,
+            // the flag could linger and silently hijack a date the admin
+            // picks manually later on.
+            autoAdvancing.value = false;
+        }
     } catch (e) {
-        // The Mass Schedule Management module isn't wired up yet (or the
-        // request failed) — fall back to a placeholder schedule so the form
-        // still works. Remove this once the real endpoint is in place.
         massScheduleLoadFailed.value = true;
-        massSchedules.value = fallbackMassSchedulesFor(date);
+        massSchedules.value = [];
+        form.linked_mass_reservation_id = '';
     } finally {
         loadingMassSchedules.value = false;
     }
+}
+
+// Guards the silent look-ahead above so it only ever runs starting from
+// selectType()'s automatic default date, not from a date the admin typed
+// or picked themselves.
+const autoAdvancing = ref(false);
+const AUTO_ADVANCE_DAYS = 14;
+
+async function tryNextAvailableMassDate(fromDate, daysChecked = 0) {
+    if (daysChecked >= AUTO_ADVANCE_DAYS) {
+        autoAdvancing.value = false;
+        return;
+    }
+
+    const next = new Date(`${fromDate}T00:00:00`);
+    next.setDate(next.getDate() + 1);
+    const nextDateStr = next.toISOString().slice(0, 10);
+
+    try {
+        const { data } = await axios.get(route('reservations.mass-schedules'), {
+            params: { date: nextDateStr, exclude: props.reservation?.id ?? undefined },
+        });
+        const schedules = data.schedules ?? [];
+
+        if (schedules.length) {
+            autoAdvancing.value = false;
+            form.event_date = nextDateStr; // triggers the normal watcher, which re-fetches and settles state
+            return;
+        }
+    } catch (e) {
+        // keep trying subsequent dates
+    }
+
+    await tryNextAvailableMassDate(nextDateStr, daysChecked + 1);
 }
 
 watch(
@@ -794,8 +883,8 @@ watch(
         const [oldType, oldDate] = oldVal ?? [];
         if (type !== oldType || date !== oldDate) {
             if (date !== oldDate) {
-                form.details.mass_schedule_id = '';
-                form.event_time = '';
+                form.linked_mass_reservation_id = '';
+                adjustingMassSchedule.value = false;
             }
             loadMassSchedules(date);
         }
@@ -803,24 +892,30 @@ watch(
     { immediate: true }
 );
 
-watch(
-    () => form.details.mass_schedule_id,
-    (id) => {
-        if (form.type !== 'pamisa_sa_kalag') return;
-        const schedule = massSchedules.value.find((s) => String(s.id) === String(id));
-        if (schedule) {
-            form.event_time = schedule.start_time;
-            form.details.mass_type = schedule.mass_type ?? '';
-        } else {
-            form.event_time = '';
-            form.details.mass_type = '';
-        }
-    }
+const suggestedMassSchedule = computed(() => massSchedules.value.find((s) => s.suggested) ?? null);
+const otherMassSchedules = computed(() => massSchedules.value.filter((s) => !s.suggested));
+const selectedMassSchedule = computed(
+    () => massSchedules.value.find((s) => String(s.id) === String(form.linked_mass_reservation_id)) ?? null,
 );
+
+function acceptMassSuggestion() {
+    if (!suggestedMassSchedule.value) return;
+    form.linked_mass_reservation_id = suggestedMassSchedule.value.id;
+    adjustingMassSchedule.value = false;
+}
+
+function openAdjustMassSchedule() {
+    adjustingMassSchedule.value = true;
+}
+
+function chooseMassSchedule(schedule) {
+    form.linked_mass_reservation_id = schedule.id;
+    adjustingMassSchedule.value = false;
+}
 
 const massScheduleRequiredButMissing = computed(() => {
     if (form.type !== 'pamisa_sa_kalag') return false;
-    return !form.details.mass_schedule_id;
+    return !form.linked_mass_reservation_id;
 });
 
 </script>
@@ -852,7 +947,7 @@ const massScheduleRequiredButMissing = computed(() => {
             <!-- Others sub-choice: dropdown grouped by category -->
             <div v-if="activeGridKey === 'others'" class="mt-4 border-t border-[#3f6470]/10 pt-4 dark:border-white/10">
                 <label class="field-label">What do you need?</label>
-                <select v-model="form.type" class="field-input" @change="form.details = defaultDetailsFor(form.type)">
+                <select v-model="form.type" class="field-input" @change="form.details = defaultDetailsFor(form.type); form.linked_mass_reservation_id = ''">
                     <optgroup v-for="group in activeGridOption.subGroups" :key="group.label" :label="group.label">
                         <option v-for="opt in group.options" :key="opt.value" :value="opt.value">
                             {{ opt.label }}{{ opt.hint ? ` (${opt.hint})` : '' }}
@@ -1360,52 +1455,141 @@ const massScheduleRequiredButMissing = computed(() => {
                 <p class="text-xs text-[#3f6470]/50 dark:text-slate-500">Submit at least 1-2 days before a weekday Mass, or a week ahead for a Sunday Mass, so the name makes the printed/announced list.</p>
 
                 <!-- Mass Schedule: Pamisa sa Kalag attaches to an existing Mass
-                     slot instead of picking a free Event Time, so it gets its
-                     own section here rather than the shared Event Schedule
-                     block below (which is hidden for this type). -->
+                     occurrence instead of picking a free Event Time — the
+                     Main Church is fixed and the Mass Schedule is the sole
+                     source of truth for date, time, and priest, so there is
+                     no separate Event Time or Priest field here. Mirrors the
+                     Wedding preparation Suggested/Adjust/Accept pattern (see
+                     WeddingRequirementsPanel.vue). -->
                 <div class="border-t border-[#3f6470]/10 pt-6 dark:border-white/10">
-                    <h4 class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60 dark:text-slate-400">Mass Schedule</h4>
+                    <h4 class="text-xs font-semibold uppercase tracking-wide text-[#3f6470]/60 dark:text-slate-400">Pamisa sa Kalag Mass Schedule</h4>
 
-                    <div class="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
-                        <div>
-                            <label class="field-label">Mass Date</label>
-                            <input v-model="form.event_date" type="date" class="field-input" :min="isEdit ? undefined : todayStr" />
-                            <p v-if="form.errors.event_date" class="field-error">{{ form.errors.event_date }}</p>
-                        </div>
+                    <div class="mt-4">
+                        <label class="field-label">Mass Date</label>
+                        <input v-model="form.event_date" type="date" class="field-input max-w-xs" :min="isEdit ? undefined : todayStr" @input="autoAdvancing = false" />
+                        <p v-if="form.errors.event_date" class="field-error">{{ form.errors.event_date }}</p>
+                    </div>
 
-                        <div>
-                            <label class="field-label">Assigned Priest (Optional)</label>
-                            <select v-model="form.priest_id" class="field-input">
-                                <option value="">Unassigned</option>
-                                <option v-for="priest in priests" :key="priest.id" :value="priest.id">{{ priest.name }}</option>
-                            </select>
-                            <p v-if="form.errors.priest_id" class="field-error">{{ form.errors.priest_id }}</p>
-                        </div>
+                    <p v-if="form.errors.linked_mass_reservation_id" class="field-error mt-2">{{ form.errors.linked_mass_reservation_id }}</p>
 
-                        <div class="sm:col-span-2">
-                            <label class="field-label">
-                                Mass Schedule
-                                <span v-if="loadingMassSchedules" class="ml-1 normal-case text-[#3f6470]/40 dark:text-slate-500">(loading schedules…)</span>
-                            </label>
-                            <select
-                                v-model="form.details.mass_schedule_id"
-                                class="field-input"
-                                :disabled="!form.event_date || loadingMassSchedules"
+                    <!-- Loading -->
+                    <p v-if="loadingMassSchedules" class="mt-4 text-sm text-[#3f6470]/60 dark:text-slate-400">Loading Mass schedules…</p>
+
+                    <!-- No date selected yet -->
+                    <p v-else-if="!form.event_date" class="mt-4 text-sm text-[#3f6470]/50 dark:text-slate-500">
+                        Select a Mass Date first.
+                    </p>
+
+                    <!-- No available Masses on that date -->
+                    <div
+                        v-else-if="!massSchedules.length"
+                        class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+                    >
+                        <p class="font-semibold">⚠️ No Available Mass Schedule Found</p>
+                        <p class="mt-1">
+                            There are no available Mass schedules for this date — every Mass may already be full, or
+                            none has been set up for this day. Choose another Mass Date.
+                        </p>
+                    </div>
+
+                    <!-- 💡 Suggested schedule (default) -->
+                    <div
+                        v-else-if="!adjustingMassSchedule && selectedMassSchedule"
+                        class="mt-4 rounded-xl border border-[#3f6470]/10 bg-[#FBF7EE]/70 p-4 dark:border-white/10 dark:bg-slate-700/60"
+                    >
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <span class="text-sm font-semibold text-[#2f4a4a] dark:text-slate-100">Pamisa sa Kalag Mass Schedule</span>
+                            <span
+                                v-if="selectedMassSchedule.suggested"
+                                class="rounded-full border border-[#c98a3a]/30 bg-[#F7E9C6]/60 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#7a5a1a]"
                             >
-                                <option value="">{{ !form.event_date ? 'Select a Mass Date first' : 'Select a Mass schedule' }}</option>
-                                <option v-for="schedule in massSchedules" :key="schedule.id" :value="schedule.id">
-                                    {{ schedule.label }}
-                                </option>
-                            </select>
-                            <p v-if="form.errors.event_time || form.errors['details.mass_schedule_id']" class="field-error">
-                                {{ form.errors.event_time || form.errors['details.mass_schedule_id'] }}
+                                💡 Suggested
+                            </span>
+                            <span
+                                v-else
+                                class="rounded-full border border-[#8CA089]/30 bg-[#8CA089]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#3f6470]"
+                            >
+                                🟢 Selected
+                            </span>
+                        </div>
+
+                        <div class="mt-3 space-y-1 text-sm text-[#2f4a4a] dark:text-slate-100">
+                            <p>📅 {{ formatDisplayDate(selectedMassSchedule.date) }}</p>
+                            <p>
+                                🕐 {{ formatTimeLabel(selectedMassSchedule.start_time) }}
+                                <template v-if="selectedMassSchedule.end_time"> — {{ formatTimeLabel(selectedMassSchedule.end_time) }}</template>
+                                <span class="text-xs text-[#3f6470]/60 dark:text-slate-300">({{ selectedMassSchedule.mass_type }})</span>
                             </p>
-                            <p v-else-if="form.event_date && !loadingMassSchedules && !massSchedules.length" class="mt-1.5 text-xs text-[#3f6470]/60 dark:text-slate-400">
-                                No Mass schedules are available for the selected date.
-                            </p>
-                            <p v-else-if="!form.event_date" class="mt-1.5 text-xs text-[#3f6470]/50 dark:text-slate-500">
-                                Select a Mass Date first.
-                            </p>
+                            <p>📍 Main Church — {{ selectedMassSchedule.venue }}</p>
+                            <p>👤 {{ selectedMassSchedule.priest_name ?? 'Unassigned' }}</p>
+                        </div>
+
+                        <div class="mt-4 flex flex-wrap items-center gap-3">
+                            <button
+                                v-if="!selectedMassSchedule.suggested || suggestedMassSchedule?.id !== selectedMassSchedule.id"
+                                type="button"
+                                @click="acceptMassSuggestion"
+                                :disabled="!suggestedMassSchedule"
+                                class="rounded-full bg-[#3f6470] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-[#345460] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                ✓ Accept Suggestion
+                            </button>
+                            <button
+                                v-else
+                                type="button"
+                                disabled
+                                class="rounded-full bg-[#3f6470]/50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+                            >
+                                ✓ Suggestion Accepted
+                            </button>
+                            <button
+                                type="button"
+                                @click="openAdjustMassSchedule"
+                                class="rounded-full border border-[#3f6470]/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3f6470] hover:bg-[#E4EDE1]/60 dark:text-slate-300"
+                            >
+                                ✎ Adjust Schedule
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ✎ Adjust: pick another available Mass on this date -->
+                    <div
+                        v-else-if="massSchedules.length"
+                        class="mt-4 rounded-xl border border-[#3f6470]/10 bg-[#FBF7EE]/70 p-4 dark:border-white/10 dark:bg-slate-700/60"
+                    >
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-semibold text-[#2f4a4a] dark:text-slate-100">Choose an Available Mass</span>
+                            <button
+                                v-if="selectedMassSchedule"
+                                type="button"
+                                @click="adjustingMassSchedule = false"
+                                class="text-xs font-semibold text-[#3f6470] hover:underline dark:text-slate-300"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                        <p class="mt-1 text-xs text-[#3f6470]/60 dark:text-slate-300">
+                            Only Masses that already exist on the Mass Schedule for this date are selectable — a Mass
+                            that's full or unavailable is never listed here.
+                        </p>
+
+                        <div class="mt-3 space-y-2">
+                            <button
+                                v-for="schedule in massSchedules"
+                                :key="schedule.id"
+                                type="button"
+                                @click="chooseMassSchedule(schedule)"
+                                class="flex w-full items-center justify-between rounded-lg border px-4 py-3 text-left text-sm transition"
+                                :class="String(form.linked_mass_reservation_id) === String(schedule.id)
+                                    ? 'border-[#8CA089] bg-[#8CA089]/15 text-[#3f6470] dark:text-[#c9dcc3]'
+                                    : 'border-[#3f6470]/15 text-[#2f4a4a] hover:bg-[#E4EDE1]/50 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/10'"
+                            >
+                                <span>
+                                    🕐 {{ formatTimeLabel(schedule.start_time) }} — {{ schedule.mass_type }}
+                                    <span class="text-xs text-[#3f6470]/60 dark:text-slate-400"> — {{ schedule.priest_name ?? 'Unassigned' }}</span>
+                                </span>
+                                <span v-if="schedule.suggested" class="text-[11px] font-semibold uppercase tracking-wide text-[#7a5a1a]">💡 Suggested</span>
+                            </button>
                         </div>
                     </div>
                 </div>

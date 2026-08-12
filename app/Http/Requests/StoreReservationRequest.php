@@ -49,6 +49,24 @@ class StoreReservationRequest extends FormRequest
                 $this->merge(['location_id' => $mainSanctuary->id]);
             }
         }
+
+        // The Mass Schedule is the single source of truth for Pamisa sa
+        // Kalag's date, time, and priest — there is no independent Event
+        // Time field for it. Whatever the admin's client happened to send
+        // for these is discarded and overwritten here from the linked
+        // Mass occurrence itself, so the two can never disagree.
+        if ($this->input('type') === 'pamisa_sa_kalag' && $this->input('linked_mass_reservation_id')) {
+            $mass = \App\Models\Reservation::where('type', 'mass')
+                ->find($this->input('linked_mass_reservation_id'));
+
+            if ($mass) {
+                $this->merge([
+                    'event_date' => $mass->event_date->format('Y-m-d'),
+                    'event_time' => $mass->event_time ? substr((string) $mass->event_time, 0, 5) : null,
+                    'priest_id' => $mass->priest_id,
+                ]);
+            }
+        }
     }
 
     public function rules(): array
@@ -87,6 +105,10 @@ class StoreReservationRequest extends FormRequest
             'event_time' => ['nullable', 'date_format:H:i'],
             'priest_id' => ['nullable', 'exists:priests,id'],
             'location_id' => ['nullable', 'exists:locations,id'],
+            // Only meaningful for pamisa_sa_kalag (see conditionalRules()
+            // below, which makes it required for that type); nullable here
+            // so every other type's payload validates fine without it.
+            'linked_mass_reservation_id' => ['nullable', 'integer', Rule::exists('reservations', 'id')],
             'offering_amount' => ['nullable', 'numeric', 'min:0'],
             // Church Availability & Conflict Detection Engine override —
             // only meaningful when the engine actually found a conflict
@@ -108,7 +130,59 @@ class StoreReservationRequest extends FormRequest
         $validator->after(function (Validator $validator) {
             $this->checkChurchAvailability($validator);
             $this->checkSchedulingConflict($validator);
+            $this->checkPamisaMassLink($validator);
         });
+    }
+
+    /**
+     * Pamisa sa Kalag must attach to a real, currently-available Mass
+     * occurrence — never an arbitrary time. Rejects the submission if the
+     * chosen Mass no longer qualifies: it's not actually type = 'mass',
+     * it's been cancelled, or it's already at capacity for Pamisa sa Kalag
+     * intentions (config('mass_schedule.max_pamisa_intentions_per_mass')).
+     * Runs the count check with a row lock so two admins can't both
+     * squeeze into the last open slot on the same Mass at once.
+     */
+    protected function checkPamisaMassLink(Validator $validator): void
+    {
+        if ($this->input('type') !== 'pamisa_sa_kalag') {
+            return;
+        }
+
+        $massId = $this->input('linked_mass_reservation_id');
+
+        if (! $massId) {
+            return; // already flagged as required by conditionalRules()
+        }
+
+        $mass = \App\Models\Reservation::where('id', $massId)->first();
+
+        if (! $mass || $mass->type !== 'mass') {
+            $validator->errors()->add('linked_mass_reservation_id', 'Select a valid Mass schedule for this date.');
+
+            return;
+        }
+
+        if ($mass->status !== 'confirmed') {
+            $validator->errors()->add('linked_mass_reservation_id', 'That Mass has been cancelled — please choose another available Mass schedule.');
+
+            return;
+        }
+
+        $capacity = (int) config('mass_schedule.max_pamisa_intentions_per_mass', 10);
+        $ownReservationId = $this->route('reservation')?->id;
+
+        $intentionCount = \Illuminate\Support\Facades\DB::transaction(function () use ($massId, $ownReservationId) {
+            return \App\Models\Reservation::where('linked_mass_reservation_id', $massId)
+                ->where('status', '!=', 'cancelled')
+                ->when($ownReservationId, fn ($q) => $q->where('id', '!=', $ownReservationId))
+                ->lockForUpdate()
+                ->count();
+        });
+
+        if ($intentionCount >= $capacity) {
+            $validator->errors()->add('linked_mass_reservation_id', 'That Mass schedule is already full. Please choose another available Mass schedule.');
+        }
     }
 
     /**
@@ -322,7 +396,14 @@ class StoreReservationRequest extends FormRequest
             ],
             'pamisa_sa_kalag' => [
                 'details.names' => ['required', 'string'],
-                'details.mass_schedule_id' => ['required'],
+                // The specific existing Mass occurrence (reservations.id,
+                // type = 'mass') this Pamisa sa Kalag reservation attaches
+                // to. This is the ONLY thing that determines the schedule
+                // — see prepareForValidation(), which copies the Mass's
+                // own date/time/priest onto this reservation, and
+                // checkPamisaMassLink() below, which rejects a Mass that's
+                // cancelled, on a different date, or already full.
+                'linked_mass_reservation_id' => ['required', 'integer', Rule::exists('reservations', 'id')],
             ],
             'school_mass' => [
                 'details.school_name' => ['required', 'string', 'max:255'],
